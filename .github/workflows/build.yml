@@ -1,0 +1,61 @@
+# Builds omni.exe, the Setup.exe and the portable zip on every push and pull
+# request (download them from the run's "Artifacts"). Pushing a tag such as
+# v1.2.0 also publishes them as a GitHub release.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          check-latest: true
+
+      - name: Install NSIS
+        run: command -v makensis || [ -x "/c/Program Files (x86)/NSIS/makensis.exe" ] || choco install nsis -y --no-progress
+
+      - name: Version
+        id: version
+        run: |
+          v=$(sed -n 's/^const appVersion = "\(.*\)"/\1/p' app.go)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = tag ] && [ "${GITHUB_REF_NAME}" != "v$v" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match appVersion $v in app.go"
+            exit 1
+          fi
+
+      - name: Build
+        run: bash build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OmniWebServer-${{ steps.version.outputs.version }}
+          path: |
+            dist/OmniWebServer-*-Setup.exe
+            dist/OmniWebServer-*-portable.zip
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist
+          sha256sum OmniWebServer-*-Setup.exe OmniWebServer-*-portable.zip > SHA256SUMS.txt
+          gh release create "$GITHUB_REF_NAME" OmniWebServer-*-Setup.exe OmniWebServer-*-portable.zip SHA256SUMS.txt \
+            --title "Omni Web Server ${GITHUB_REF_NAME#v}" --generate-notes --prerelease
