@@ -20,7 +20,7 @@ import (
 
 const usage = `Omni Web Server %s - Apache + PHP + MySQL with automatic virtual hosts
 
-Usage: omni [command]
+Usage: omni.exe [command]
 
   serve [--no-browser]           run the dashboard and services in the foreground (default)
   start                          start Omni Web Server in the background and all services
@@ -228,7 +228,7 @@ func newClient(root string) (*client, error) {
 	return &client{root: root, base: fmt.Sprintf("http://127.0.0.1:%d", cfg.DashboardPort)}, nil
 }
 
-var errNotRunning = errors.New("Omni Web Server is not running: start it with `omni start` (or `omni serve`)")
+var errNotRunning = errors.New("Omni Web Server is not running: start it with `omni.exe start` or the shortcut")
 
 func (c *client) call(method, path string, body, out any) error {
 	var rd io.Reader
@@ -432,7 +432,7 @@ func (c *client) run(cmd string, args []string) error {
 			fmt.Printf("HTTPS: on (port %d) - every enabled site is at https://<name>.%s\n", st.Settings.HTTPSPort, st.Settings.TLD)
 		}
 		if s.CA {
-			trust := "NOT trusted yet: run `omni ssl trust`"
+			trust := "NOT trusted yet: run `omni.exe ssl trust`"
 			if s.Trusted {
 				trust = "trusted"
 			}
@@ -464,7 +464,7 @@ func (c *client) run(cmd string, args []string) error {
 			if d.Active {
 				fmt.Printf("Windows sends *.%s lookups here (NRPT rule); the hosts file is not needed.\n", st.Settings.TLD)
 			} else if d.Resolver == "nrpt" {
-				fmt.Println("The Windows resolver rule is not in place yet: run `omni hosts` and accept the UAC prompt.")
+				fmt.Println("The Windows resolver rule is not in place yet: run `omni.exe hosts` and accept the UAC prompt.")
 			} else {
 				fmt.Printf("Point your resolver at it for *.%s (dnsmasq: server=/%s/127.0.0.1#%d).\n", st.Settings.TLD, st.Settings.TLD, st.Settings.DNSPort)
 			}

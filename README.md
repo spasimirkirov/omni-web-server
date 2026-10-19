@@ -36,9 +36,9 @@
 [Importing existing projects](#importing-existing-projects) ·
 [Building from source](#building-from-source)
 
-You control everything from a dashboard at <http://localhost:8800> or with the
-`omni` command. A single `omni.exe` manages everything, and an installer sets
-it up.
+You control everything from a dashboard at <http://localhost:8800> and from
+the tray icon next to the clock. A single `omni.exe` manages everything, and an
+installer sets it up.
 
 ## Features
 
@@ -77,7 +77,8 @@ it up.
    are installed later from the dashboard.
 5. Click **Finish**. Omni Web Server starts and downloads the selected
    components. You can watch the progress at the top of the dashboard. Then
-   it starts everything. A sample site is at <http://welcome.local>.
+   it starts everything. A sample site is at <http://welcome.local>, and the
+   tray icon next to the clock opens the dashboard at any time.
 
 **Run as administrator** is on by default. It makes the shortcuts start
 elevated, so changes to the hosts file and DNS need no UAC prompts.
@@ -99,14 +100,17 @@ databases, downloaded components and settings. Your projects are always kept.
 ```bat
 cd D:\Projects
 composer create-project laravel/laravel blog
-omni db create blog
 :: http://blog.local  (DocumentRoot = blog\public)
 ```
 
-Set these values in `.env`:
+The new project uses SQLite by default. To use MySQL instead, create a
+database named `blog` with any MySQL client (HeidiSQL, DBeaver or Adminer from
+the **Tools** tab), then set these values in `.env`:
 
 ```dotenv
+DB_CONNECTION=mysql
 DB_HOST=127.0.0.1
+DB_DATABASE=blog
 DB_USERNAME=root
 DB_PASSWORD=
 MAIL_HOST=127.0.0.1
@@ -128,8 +132,7 @@ inbox is at <http://localhost:8025>.
 
 ### Wildcard DNS
 
-Turn it on under **Settings → Wildcard DNS**, or run `omni dns on`. Accept the
-one-time UAC prompt, which installs the NRPT rule. You can check it from
+Turn it on under **Settings → Wildcard DNS**. Accept the one-time UAC prompt, which installs the NRPT rule. You can check it from
 PowerShell:
 
 ```powershell
@@ -156,9 +159,8 @@ Resolve-DnsName anything.blog.local                                # 127.0.0.1 /
 
 ### HTTPS
 
-Turn it on under **Settings → HTTPS**, or run `omni ssl on`. Then click
-**Trust certificate**, or run `omni ssl trust`, and confirm the Windows
-dialog. Every enabled site now also answers on `https://` with a valid
+Turn it on under **Settings → HTTPS**. Then click **Trust certificate** and
+confirm the Windows dialog. Every enabled site now also answers on `https://` with a valid
 certificate. This includes one level of subdomains, such as
 `https://api.blog.local`. Plain `http://` keeps working.
 
@@ -177,31 +179,31 @@ certificate. This includes one level of subdomains, such as
 
 ## Command line
 
-Everything the dashboard does is also available from `omni.exe` in the install
-folder (`C:\OmniWebServer\omni.exe help`). It is not added to PATH, so it
-can't clash with another program's `omni` command. Most commands talk to the
-running server, which you start with `omni.exe start` or the shortcut.
+You don't need the command line: the dashboard and the tray icon do
+everything. For scripts, `omni.exe` in the install folder has the same
+features. It is deliberately not added to PATH, so it can't clash with another
+program's `omni` command. Run it with its full path, for example
+`C:\OmniWebServer\omni.exe status`. Most commands talk to the running server.
 
 ```text
-omni start | stop | quit           start in background + services | stop services | exit
-omni status                        services, PHP pools and sites
-omni site enable|disable blog      toggle a vhost
-omni site php blog 8.2             PHP version per project ("default" to reset)
-omni site root blog web            custom document root ("auto" to reset)
-omni site add shop D:\work\shop    vhost for a folder outside www
-omni php install 8.4               download PHP (or 7.4.33 from the archives)
-omni ext 8.4 on intl               toggle extensions
-omni install xdebug 8.4            Xdebug for PHP 8.4
-omni install composer | node 22 | mailpit | redis | mariadb | adminer
-omni install tool git              Windows apps via winget (see: omni tools)
-omni node default 22.11.0          default Node.js
-omni db create blog                utf8mb4 database
-omni dns on | ssl on | ssl trust   wildcard DNS, HTTPS, trust the local CA
-omni share blog [off]              public https URL through Cloudflare
-omni logs apache_error 100         show a log
-omni migrate laragon | xampp       import from Laragon/XAMPP (lists the steps first)
-omni init --www D:\Projects        prepare settings (used by the installer)
-omni cleanup                       undo hosts/DNS/PATH/registry (used by the uninstaller)
+omni.exe help                          every command
+omni.exe start | stop | quit           start in background + services | stop services | exit
+omni.exe status                        services, PHP pools and sites
+omni.exe site enable|disable blog      toggle a vhost
+omni.exe site php blog 8.2             PHP version per project ("default" to reset)
+omni.exe site root blog web            custom document root ("auto" to reset)
+omni.exe site add shop D:\work\shop    vhost for a folder outside www
+omni.exe php install 8.4               download PHP (or 7.4.33 from the archives)
+omni.exe ext 8.4 on intl               toggle extensions
+omni.exe install xdebug 8.4            Xdebug for PHP 8.4
+omni.exe install composer | node 22 | mailpit | redis | mariadb | adminer
+omni.exe install tool git              Windows apps via winget (list: omni.exe tools)
+omni.exe node default 22.11.0          default Node.js
+omni.exe db create blog                utf8mb4 database
+omni.exe dns on | ssl on | ssl trust   wildcard DNS, HTTPS, trust the local CA
+omni.exe share blog [off]              public https URL through Cloudflare
+omni.exe logs apache_error 100         show a log
+omni.exe migrate laragon | xampp       import from Laragon/XAMPP (lists the steps first)
 ```
 
 ## Folder layout
@@ -264,9 +266,8 @@ variable points to the install folder.
 ## Importing existing projects
 
 If you already have projects in a local XAMPP or Laragon install, Omni Web
-Server can import them. Run `omni migrate xampp` or `omni migrate laragon`, or
-use **Tools → Import from Laragon / XAMPP**. The installer also offers this
-when it finds one of them.
+Server can import them: use **Tools → Import from Laragon / XAMPP** in the
+dashboard. The installer also offers this when it finds one of them.
 
 The import lists every step and asks before it starts. It does the following:
 - installs the PHP version the existing install uses;
