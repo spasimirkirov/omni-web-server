@@ -202,6 +202,11 @@ Function .onInit
     StrCpy $WWWDir $1
   ${EndIf}
   Call DetectOldStack
+  ; Upgrades keep "Start with Windows" if it was on.
+  ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APPKEY}"
+  ${If} $0 != ""
+    !insertmacro SelectSection ${SecAutorun}
+  ${EndIf}
 FunctionEnd
 
 Function WWWPagePre
