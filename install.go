@@ -587,6 +587,38 @@ func (a *App) installAdminer(t *Task) error {
 // pendingOrder installs dependencies first (Composer needs PHP).
 var pendingOrder = []string{"apache", "php", "mysql", "mariadb", "composer", "node", "mailpit", "redis", "adminer", "tool", "migrate"}
 
+// alreadyInstalled reports whether a queued item ("php", "php:8.3",
+// "tool:git", ...) is present, so re-running the installer over an existing
+// install doesn't download everything again.
+func (a *App) alreadyInstalled(cfg *Config, item string) bool {
+	component, version, _ := strings.Cut(item, ":")
+	switch component {
+	case "apache":
+		return installed(a.apacheBin(cfg))
+	case "php":
+		if version == "" {
+			return len(cfg.PHP) > 0
+		}
+		_, ok := cfg.PHP[minorOf(version)]
+		return ok
+	case "mysql", "mariadb":
+		return cfg.MySQL.Dir != "" && installed(a.mysqlBin(cfg))
+	case "composer":
+		return exists(a.composerPhar())
+	case "node":
+		return version == "" && a.nodeDir(cfg) != ""
+	case "mailpit":
+		return installed(a.mailpitBin(cfg))
+	case "redis":
+		return installed(a.redisBin(cfg))
+	case "adminer":
+		return exists(filepath.Join(a.abs(cfg.WWWDir), "adminer", "index.php"))
+	case "tool":
+		return toolPath(version) != ""
+	}
+	return false
+}
+
 func pendingRank(item string) int {
 	for i, p := range pendingOrder {
 		if strings.HasPrefix(item, p) {

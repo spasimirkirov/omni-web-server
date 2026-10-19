@@ -55,6 +55,12 @@ Var MigrateName
 
 !define MUI_ICON "..\favicons\favicon.ico"
 !define MUI_UNICON "..\favicons\favicon.ico"
+!define MUI_WELCOMEFINISHPAGE_BITMAP "wizard.bmp"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "wizard.bmp"
+!define MUI_HEADERIMAGE
+!define MUI_HEADERIMAGE_RIGHT
+!define MUI_HEADERIMAGE_BITMAP "header.bmp"
+!define MUI_HEADERIMAGE_UNBITMAP "header.bmp"
 !define MUI_ABORTWARNING
 !define MUI_COMPONENTSPAGE_SMALLDESC
 !define MUI_LANGDLL_REGISTRY_ROOT HKCU
@@ -119,8 +125,8 @@ LangString PageWWWTop ${LANG_ENGLISH} "Every folder inside becomes http://<folde
 LangString PageWWWTop ${LANG_BULGARIAN} "Всяка папка вътре автоматично става http://<папка>.local (Laravel проектите се обслужват от public/). Деинсталирането никога не изтрива тази папка."
 LangString PageWWWDest ${LANG_ENGLISH} "Projects folder"
 LangString PageWWWDest ${LANG_BULGARIAN} "Папка с проекти"
-LangString FinishRun ${LANG_ENGLISH} "Start Omni Web Server (downloads the selected components)"
-LangString FinishRun ${LANG_BULGARIAN} "Стартирай Omni Web Server (изтегля избраните компоненти)"
+LangString FinishRun ${LANG_ENGLISH} "Start Omni Web Server"
+LangString FinishRun ${LANG_BULGARIAN} "Стартирай Omni Web Server"
 LangString FinishReadme ${LANG_ENGLISH} "Show the README"
 LangString FinishReadme ${LANG_BULGARIAN} "Покажи README"
 LangString UnDeleteData ${LANG_ENGLISH} "Also delete databases, downloaded components (Apache, PHP, MySQL, ...), certificates, logs and settings?$\r$\n$\r$\nYour projects folder ($WWWDir) is never deleted."

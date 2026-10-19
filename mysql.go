@@ -80,7 +80,9 @@ func (a *App) renderMyIni(cfg *Config) string {
 	}
 	w("datadir = \"%s\"", slash(a.mysqlDataDir(cfg)))
 	w("port = %d", cfg.MySQL.Port)
-	w("bind-address = 127.0.0.1")
+	// Also listen on ::1, otherwise DB_HOST=localhost tries ::1 first and Windows
+	// spends ~2 s retrying the refused connection before falling back to IPv4.
+	w("bind-address = %s", loopbackAddrs(","))
 	if runtime.GOOS != "windows" {
 		w("socket = \"%s\"", sock)
 		w("pid-file = \"%s\"", slash(a.path("tmp", "mysqld.pid")))

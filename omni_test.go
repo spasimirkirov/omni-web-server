@@ -408,13 +408,14 @@ func TestShimsAndPendingOrder(t *testing.T) {
 	cfg.DefaultPHP = "8.3"
 	os.MkdirAll(filepath.Join(root, "bin", "shims"), 0o755)
 	os.WriteFile(filepath.Join(root, "bin", "shims", "stale"), nil, 0o755)
+	os.WriteFile(filepath.Join(root, exeName("omni")), nil, 0o755)
 	a.writeShims(cfg)
 	entries, _ := os.ReadDir(filepath.Join(root, "bin", "shims"))
 	var names []string
 	for _, e := range entries {
 		names = append(names, strings.TrimSuffix(e.Name(), ".cmd"))
 	}
-	if strings.Join(names, ",") != "composer,php,php83" {
+	if strings.Join(names, ",") != "composer,omni,php,php83" {
 		t.Fatalf("shims: %v", names)
 	}
 	vals := a.registryValues(cfg)

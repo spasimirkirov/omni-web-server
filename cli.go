@@ -170,7 +170,7 @@ func cmdInit(root string, args []string) error {
 		return err
 	}
 	for _, item := range strings.Split(install, ",") {
-		if item = strings.TrimSpace(item); item != "" && !contains(app.cfg.PendingInstalls, item) {
+		if item = strings.TrimSpace(item); item != "" && !contains(app.cfg.PendingInstalls, item) && !app.alreadyInstalled(app.cfg, item) {
 			app.cfg.PendingInstalls = append(app.cfg.PendingInstalls, item)
 		}
 	}

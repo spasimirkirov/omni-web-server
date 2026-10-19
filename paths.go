@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// Discoverability: launcher shims in bin/shims (php, phpXY, composer, node,
+// Discoverability: launcher shims in bin/shims (omni, php, phpXY, composer, node,
 // npm, npx, mysql, mysqldump, redis-cli) that a single PATH entry exposes to
 // every terminal and IDE, plus registry values under
 // HKCU\Software\OmniWebServer that describe where everything lives.
@@ -22,6 +22,9 @@ type shim struct {
 
 func (a *App) shims(cfg *Config) map[string]shim {
 	out := map[string]shim{}
+	if p := a.path(exeName("omni")); exists(p) {
+		out["omni"] = shim{target: p}
+	}
 	for minor, p := range cfg.PHP {
 		cli := a.phpCLI(p)
 		if cli == "" {
