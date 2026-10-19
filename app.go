@@ -31,7 +31,16 @@ type App struct {
 	hostsDeclined string
 	versions      map[string]string
 
-	applyMu  sync.Mutex
+	dnsErr  string
+	dnsSnap dnsStatus
+
+	applyMu sync.Mutex
+	// guarded by applyMu
+	dns              *dnsServer
+	dnsKey           string
+	resolverState    *string
+	resolverDeclined string
+
 	apache   *Proc
 	mysql    *Proc
 	pools    map[string]*phpPool
@@ -351,8 +360,9 @@ func (a *App) Apply(forceHosts bool) error {
 		warnings = append(warnings, "Apache is not installed yet: install it from the Services tab.")
 	}
 
-	// hosts file
-	if err := a.syncHosts(cfg, sites, forceHosts); err != nil {
+	// Wildcard DNS, then the hosts file (not needed while the DNS rule is active)
+	warnings = append(warnings, a.syncDNS(cfg, forceHosts)...)
+	if err := a.syncHosts(cfg, sites, forceHosts, a.resolverActive(cfg)); err != nil {
 		warnings = append(warnings, err.Error())
 	}
 

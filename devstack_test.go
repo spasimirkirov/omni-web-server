@@ -2,11 +2,14 @@ package main
 
 import (
 	"archive/zip"
+	"context"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -120,6 +123,7 @@ func TestRenderApacheConf(t *testing.T) {
 		"Listen 80",
 		`LoadModule rewrite_module "C:/x/mod_rewrite.so"`,
 		"ServerName blog.local",
+		"ServerAlias *.blog.local",
 		`DocumentRoot "C:/DevStack/www/blog/public"`,
 		`SetHandler "proxy:fcgi://127.0.0.1:9740"`,
 		`SetHandler "proxy:fcgi://127.0.0.1:9830"`,
@@ -253,5 +257,55 @@ func TestScanSites(t *testing.T) {
 	sites, _ = a.scanSitesLocked()
 	if sites[0].PHP != "8.3" || sites[0].Warning == "" {
 		t.Fatalf("missing PHP version should fall back with a warning: %+v", sites[0])
+	}
+}
+
+func TestWildcardDNS(t *testing.T) {
+	l, _ := net.ListenPacket("udp", "127.0.0.1:0")
+	port := l.LocalAddr().(*net.UDPAddr).Port
+	l.Close()
+	srv, err := startDNS(port, "local", log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	for _, network := range []string{"udp", "tcp"} {
+		r := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, fmt.Sprintf("127.0.0.1:%d", port))
+		}}
+		ctx := context.Background()
+		for _, host := range []string{"blog.local", "api.blog.local", "a.b.c.shop.LOCAL", "local"} {
+			ips, err := r.LookupIPAddr(ctx, host)
+			if err != nil {
+				t.Fatalf("%s %s: %v", network, host, err)
+			}
+			var got []string
+			for _, ip := range ips {
+				got = append(got, ip.String())
+			}
+			sort.Strings(got)
+			if strings.Join(got, ",") != "127.0.0.1,::1" {
+				t.Fatalf("%s %s: got %v", network, host, got)
+			}
+		}
+		if _, err := r.LookupIPAddr(ctx, "example.com"); err == nil {
+			t.Fatalf("%s: names outside the TLD must not resolve", network)
+		}
+		if _, err := r.LookupIPAddr(ctx, "notlocal"); err == nil {
+			t.Fatalf("%s: suffix match must be on a label boundary", network)
+		}
+	}
+}
+
+func TestDNSMalformed(t *testing.T) {
+	s := &dnsServer{tld: "local"}
+	for _, q := range [][]byte{nil, {1, 2, 3}, append([]byte{0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0}, 0x40)} {
+		if resp := s.answer(q); resp != nil && len(resp) >= 4 && resp[3]&0x0f == 0 {
+			t.Fatalf("malformed query %v answered without error", q)
+		}
+	}
+	// responses (QR set) are ignored
+	if s.answer([]byte{0, 1, 0x80, 0, 0, 1, 0, 0, 0, 0, 0, 0}) != nil {
+		t.Fatal("answered a response packet")
 	}
 }

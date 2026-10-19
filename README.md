@@ -31,6 +31,15 @@ Everything lives in one folder and is driven by a single `devstack.exe`.
 - **hosts file managed for you.** A marked block in
   `C:\Windows\System32\drivers\etc\hosts` is kept in sync. It contains both
   `name.local` and `www.name.local`. The rest of the file is never touched.
+- **Wildcard DNS (optional).** A built-in DNS server answers every
+  `*.local` name, including deep subdomains like `api.blog.local` or
+  `tenant1.shop.local`, with `127.0.0.1`. Apache adds
+  `ServerAlias *.<project>.local`, so subdomains reach the right project,
+  which suits multi-tenant apps and subdomain routing. On Windows, DevStack
+  adds a DNS Client NRPT rule (Name Resolution Policy Table) that sends only
+  `.local` lookups to `127.0.0.1`; all other DNS is unchanged. While that
+  rule is active, the hosts file no longer needs editing, so no more UAC
+  prompts when you add projects.
 - **Easy custom vhosts.** "Add vhost…" serves any folder outside `www` under a
   name you choose.
 - **CLI shims.** `bin\shims\php.cmd`, `php83.cmd`, … run the CLI with the same
@@ -81,6 +90,35 @@ yourself:
 
 Restart DevStack and the new folders are registered automatically.
 
+### Wildcard DNS
+
+Turn it on under **Settings → Wildcard DNS** or with `devstack dns on`.
+Accept the one-time UAC prompt, which installs the NRPT rule. Check it from
+PowerShell:
+
+```powershell
+Get-DnsClientNrptRule | Where-Object Comment -eq DevStack   # Namespace .local -> 127.0.0.1
+Resolve-DnsName anything.blog.local                         # 127.0.0.1 / ::1
+```
+
+Notes:
+- Windows can only send NRPT queries to port 53. If another program (e.g.
+  Internet Connection Sharing) already uses `127.0.0.1:53`, DevStack shows
+  that program. In that case sites keep working through the hosts file.
+- `.local` is also used by mDNS (printers, network devices). If your network
+  has `.local` devices, switch the domain suffix to `.test`, which is reserved
+  for exactly this purpose; the rule follows automatically.
+- Browsers using their own "secure DNS" (DNS-over-HTTPS) may bypass the
+  system resolver. Chrome and Edge fall back to the system resolver when NRPT
+  rules exist. In Firefox, add the suffix to
+  `network.trr.excluded-domains` or turn off DoH.
+- Turning wildcard DNS off removes the NRPT rule and restores the hosts
+  entries. The rule stays in place while DevStack is closed. Apache is down
+  then anyway, so nothing else is affected.
+- On Linux/macOS, DevStack runs the DNS server but doesn't change the system
+  resolver. Point dnsmasq (`server=/local/127.0.0.1`) or systemd-resolved at
+  it yourself.
+
 ## Command line
 
 Run `devstack help` for the full list. Most commands talk to the running
@@ -101,6 +139,7 @@ devstack ext 8.4 on xdebug intl     enable extensions (off to disable)
 devstack ini 8.4 memory_limit=1G    set php.ini values
 devstack install mariadb            download MariaDB (also: apache, mysql, adminer)
 devstack db create blog             create a utf8mb4 database
+devstack dns on                     wildcard DNS: *.local (any depth) -> this PC
 devstack logs apache_error 100      show a log
 ```
 
@@ -155,8 +194,9 @@ dashboard, `devstack.json`, or the `custom` include files.
 - **Apache/PHP/MySQL exits immediately**: install the VC++ Redistributable
   (step 1), then check the log the dashboard shows.
 - **`name.local` doesn't resolve**: click *Settings → Rewrite hosts file now*
-  and accept the UAC prompt, or run DevStack as administrator. Then check that
-  the DevStack block exists in the hosts file.
+  (or *Apply DNS rule* when wildcard DNS is on) and accept the UAC prompt,
+  or run DevStack as administrator. Then check that the DevStack block exists
+  in the hosts file, or that `Get-DnsClientNrptRule` lists the DevStack rule.
 - **Windows SmartScreen warns about devstack.exe**: the build is not
   code-signed. Choose *More info → Run anyway*.
 

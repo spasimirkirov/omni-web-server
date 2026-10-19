@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -77,3 +78,19 @@ func addToUserPath(dir string) error {
 }
 
 func missingRuntimes() []string { return nil }
+
+var errResolverUnsupported = errors.New("automatic resolver setup is only available on Windows")
+
+// resolverKind describes how *.tld queries reach the DNS server on this OS.
+func resolverKind() string { return "manual" }
+
+func currentResolverRule() string { return "" }
+
+// applyResolverRule is a no-op off Windows: point dnsmasq/systemd-resolved at
+// the DNS server yourself (see README).
+func applyResolverRule(namespace string, port int) error {
+	if namespace == "" {
+		return nil
+	}
+	return errResolverUnsupported
+}

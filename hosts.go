@@ -57,9 +57,9 @@ func (a *App) hostsFile(cfg *Config) string {
 // syncHosts writes the hosts file only when the managed block changes. When an
 // elevated write was declined, the same content is not retried unless forced,
 // so the user is not asked for UAC consent on every rescan.
-func (a *App) syncHosts(cfg *Config, sites []Site, force bool) error {
+func (a *App) syncHosts(cfg *Config, sites []Site, force, viaDNS bool) error {
 	var hosts []string
-	if cfg.ManageHosts {
+	if cfg.ManageHosts && !viaDNS {
 		for _, s := range sites {
 			if s.Enabled && !s.Missing {
 				hosts = append(hosts, s.Host, "www."+s.Host)

@@ -3,12 +3,15 @@
 package main
 
 import (
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"unicode/utf16"
 	"unsafe"
 )
 
@@ -198,6 +201,63 @@ func missingRuntimes() []string {
 		if !exists(filepath.Join(sys, dll)) {
 			return []string{"Microsoft Visual C++ Redistributable (x64) is missing: install it from https://aka.ms/vs/17/release/vc_redist.x64.exe"}
 		}
+	}
+	return nil
+}
+
+var errResolverUnsupported = errors.New("unsupported")
+
+const nrptComment = "DevStack"
+
+func resolverKind() string { return "nrpt" }
+
+// currentResolverRule returns the namespace of DevStack's NRPT rule ("" if none).
+// Reading the table does not need administrator rights.
+func currentResolverRule() string {
+	ps := fmt.Sprintf(`Get-DnsClientNrptRule | Where-Object { $_.Comment -eq '%s' } | Select-Object -First 1 -ExpandProperty Namespace`, nrptComment)
+	out, err := hiddenCommand("powershell", "-NoProfile", "-NonInteractive", "-Command", ps).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// applyResolverRule replaces DevStack's NRPT rule so that only names under
+// namespace (".local") are resolved by the DNS server on 127.0.0.1. An empty
+// namespace removes the rule.
+func applyResolverRule(namespace string, port int) error {
+	if namespace != "" && port != 53 {
+		return fmt.Errorf("Windows can only send queries to DNS port 53 (configured: %d)", port)
+	}
+	script := fmt.Sprintf(`$ErrorActionPreference = 'Stop'
+Get-DnsClientNrptRule | Where-Object { $_.Comment -eq '%s' } | ForEach-Object { Remove-DnsClientNrptRule -Name $_.Name -Force }
+`, nrptComment)
+	if namespace != "" {
+		script += fmt.Sprintf("Add-DnsClientNrptRule -Namespace %s -NameServers '127.0.0.1' -Comment '%s' | Out-Null\n", psQuote(namespace), nrptComment)
+	}
+	script += "Clear-DnsClientCache\n"
+	return runPowerShell(script, true)
+}
+
+// runPowerShell runs a script, elevating through UAC when needed and asked to.
+func runPowerShell(script string, elevate bool) error {
+	u16 := utf16.Encode([]rune(script))
+	b := make([]byte, 2*len(u16))
+	for i, c := range u16 {
+		b[2*i], b[2*i+1] = byte(c), byte(c>>8)
+	}
+	enc := base64.StdEncoding.EncodeToString(b)
+	if !elevate || isAdmin() {
+		out, err := hiddenCommand("powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", enc).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+	ps := fmt.Sprintf("$p = Start-Process -FilePath powershell -ArgumentList @('-NoProfile','-NonInteractive','-EncodedCommand','%s') -Verb RunAs -WindowStyle Hidden -Wait -PassThru; exit $p.ExitCode", enc)
+	out, err := hiddenCommand("powershell", "-NoProfile", "-NonInteractive", "-Command", ps).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("running as administrator failed (UAC declined?): %v %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

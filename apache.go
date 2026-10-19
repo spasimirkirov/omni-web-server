@@ -130,7 +130,7 @@ func renderApacheConf(in apacheInput) string {
 		w("# %s", v.Name)
 		w("<VirtualHost *:%d>", in.Port)
 		w("    ServerName %s", v.Host)
-		w("    ServerAlias www.%s", v.Host)
+		w("    ServerAlias *.%s", v.Host)
 		w("    DocumentRoot \"%s\"", slash(v.DocRoot))
 		dirBlock(&b, v.DocRoot, "    ")
 		phpHandler(&b, v.Pool, "    ")

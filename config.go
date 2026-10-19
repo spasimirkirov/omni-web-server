@@ -22,8 +22,11 @@ type Config struct {
 	TLD           string `json:"tld"`
 	WWWDir        string `json:"www_dir"`
 	// AutoVhost enables a vhost automatically for every new folder in www.
-	AutoVhost   bool   `json:"auto_vhost"`
-	ManageHosts bool   `json:"manage_hosts"`
+	AutoVhost   bool `json:"auto_vhost"`
+	ManageHosts bool `json:"manage_hosts"`
+	// WildcardDNS answers *.TLD with 127.0.0.1 from a built-in DNS server.
+	WildcardDNS bool   `json:"wildcard_dns"`
+	DNSPort     int    `json:"dns_port"`
 	HostsFile   string `json:"hosts_file,omitempty"`
 	// Autostart starts Apache/PHP/MySQL when the dashboard starts.
 	Autostart   bool   `json:"autostart"`
@@ -90,6 +93,7 @@ func defaultConfig() *Config {
 		PHP:           map[string]*PHPInstall{},
 		Sites:         map[string]*SiteConfig{},
 		MySQL:         MySQLConfig{Port: 3306},
+		DNSPort:       53,
 	}
 }
 
@@ -141,6 +145,9 @@ func (c *Config) normalize() {
 	}
 	if c.HTTPPort == 0 {
 		c.HTTPPort = 80
+	}
+	if c.DNSPort == 0 {
+		c.DNSPort = 53
 	}
 	if c.DashboardPort == 0 {
 		c.DashboardPort = 8800

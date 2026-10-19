@@ -274,7 +274,7 @@ function renderOverview() {
         <tbody>${sites.map(siteRow).join("")}</tbody>
       </table>` : `<div class="empty">No projects yet. Create a folder in <code>${esc(S.settings.www_dir)}</code> and it appears here${S.settings.auto_vhost ? " with a vhost already enabled" : ""}.</div>`}
     </div>
-    <p class="muted small">Every folder in www gets <code>&lt;folder&gt;.${esc(S.settings.tld)}</code>. Laravel, Symfony and CodeIgniter projects are served from <code>public/</code> automatically. ${S.settings.auto_vhost ? "Auto vhost is on: new folders are enabled automatically." : "Auto vhost is off: new folders start disabled."}</p>`;
+    <p class="muted small">Every folder in www gets <code>&lt;folder&gt;.${esc(S.settings.tld)}</code>${S.settings.wildcard_dns ? ` and any subdomain of it (wildcard DNS)` : ""}. Laravel, Symfony and CodeIgniter projects are served from <code>public/</code> automatically. ${S.settings.auto_vhost ? "Auto vhost is on: new folders are enabled automatically." : "Auto vhost is off: new folders start disabled."}</p>`;
 }
 
 function siteRow(s) {
@@ -402,6 +402,16 @@ async function loadLog() {
   } catch (e) { pre.textContent = e.message; }
 }
 
+function dnsStatusHTML() {
+  const d = S.dns, tld = esc(S.settings.tld);
+  if (!d.running) return `<span class="err">Not running: ${esc(d.error || "starting…")}</span>`;
+  let html = `<span class="dot running" style="display:inline-block;margin-right:6px"></span>Answering <code>*.${tld}</code> on <code>${esc(d.address)}</code>`;
+  if (d.active) html += `<div class="hint">Windows routes only <code>.${tld}</code> lookups here (NRPT rule); all other DNS is unchanged.</div>`;
+  else if (d.resolver === "nrpt") html += `<div class="hint">The Windows resolver rule is not in place yet. <button class="btn small" data-act="hosts-sync">Apply DNS rule</button> (asks for administrator rights)</div>`;
+  else html += `<div class="hint">Point your resolver at it, e.g. dnsmasq <code>server=/${tld}/127.0.0.1#${S.settings.dns_port}</code>.</div>`;
+  return html;
+}
+
 function renderSettings() {
   const st = S.settings;
   const sw = (key, label, hint) => `<label>${label}</label><div><label class="switch"><input type="checkbox" data-setting="${key}" ${st[key] ? "checked" : ""}><span></span></label>${hint ? `<div class="hint">${hint}</div>` : ""}</div>`;
@@ -410,6 +420,8 @@ function renderSettings() {
     <div class="panel pad"><div class="form-grid">
       ${sw("auto_vhost", "Auto vhost", "New folders in www get an enabled vhost automatically.")}
       ${sw("manage_hosts", "Manage hosts file", "Adds <code>127.0.0.1 project." + esc(st.tld) + "</code> lines to <code class=\"mono\">" + esc(S.hosts_file) + "</code>.")}
+      ${sw("wildcard_dns", "Wildcard DNS", "Every <code>*." + esc(st.tld) + "</code> name (also <code>api.blog." + esc(st.tld) + "</code>) resolves to this PC through DevStack's built-in DNS server" + (S.platform === "windows" ? ", so the hosts file no longer needs editing." : "."))}
+      ${st.wildcard_dns ? `<label>DNS status</label><div>${dnsStatusHTML()}</div>` : ""}
       <label for="s-tld">Domain suffix</label><div><input type="text" id="s-tld" value="${esc(st.tld)}" style="width:120px"><div class="hint">Projects are served at name.${esc(st.tld)}</div></div>
       <label for="s-www">Projects folder</label><div><input type="text" class="wide mono" id="s-www" value="${esc(st.www_dir)}"></div>
       <label></label><div class="row"><button class="btn primary" data-act="save-settings">Save</button><button class="btn" data-act="hosts-sync">Rewrite hosts file now</button></div>
@@ -418,6 +430,7 @@ function renderSettings() {
     <div class="panel pad"><div class="form-grid">
       <label for="s-http">Apache (HTTP)</label><div><input type="number" id="s-http" value="${st.http_port}" style="width:110px"></div>
       <label for="s-mysql">MySQL</label><div><input type="number" id="s-mysql" value="${st.mysql_port}" style="width:110px"></div>
+      <label for="s-dns">Wildcard DNS</label><div><input type="number" id="s-dns" value="${st.dns_port}" style="width:110px"><div class="hint">Windows requires 53.</div></div>
       <label for="s-dash">Dashboard</label><div><input type="number" id="s-dash" value="${st.dashboard_port}" style="width:110px"><div class="hint">Takes effect after restarting DevStack.</div></div>
       <label></label><div><button class="btn primary" data-act="save-ports">Save ports</button></div>
     </div></div>
@@ -573,7 +586,7 @@ document.addEventListener("click", async e => {
         return renderSettings();
       }
       case "save-ports": {
-        await act("POST", "/api/settings", { http_port: +$("#s-http").value, mysql_port: +$("#s-mysql").value, dashboard_port: +$("#s-dash").value }, "Ports saved");
+        await act("POST", "/api/settings", { http_port: +$("#s-http").value, mysql_port: +$("#s-mysql").value, dns_port: +$("#s-dns").value, dashboard_port: +$("#s-dash").value }, "Ports saved");
         return renderSettings();
       }
       case "quit": if (confirm("Stop all services and quit DevStack?")) await api("POST", "/api/quit"); return;

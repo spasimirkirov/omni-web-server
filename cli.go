@@ -47,7 +47,8 @@ Usage: devstack [command]
   install apache|mysql|mariadb|adminer [url]   download a component
   db                             list databases
   db create|drop <name>          create or drop a database
-  hosts                          rewrite the hosts file now
+  hosts                          rewrite the hosts file (and DNS rule) now
+  dns [on|off]                   wildcard DNS: every *.local name resolves to this PC
   logs <name> [lines]            print a log (apache_error, mysql_error, php83_error, ...)
 `
 
@@ -239,6 +240,37 @@ func (c *client) run(cmd string, args []string) error {
 		return c.db(args)
 	case "hosts":
 		return c.call("POST", "/api/hosts/sync", nil, nil)
+	case "dns":
+		if len(args) > 0 {
+			on := args[0] == "on"
+			if !on && args[0] != "off" {
+				return errors.New("usage: devstack dns [on|off]")
+			}
+			if err := c.call("POST", "/api/settings", map[string]bool{"wildcard_dns": on}, nil); err != nil {
+				return err
+			}
+		}
+		st, err := c.state()
+		if err != nil {
+			return err
+		}
+		d := st.DNS
+		switch {
+		case !d.Enabled:
+			fmt.Println("Wildcard DNS: off (sites resolve through the hosts file)")
+		case !d.Running:
+			fmt.Println("Wildcard DNS: not running:", d.Error)
+		default:
+			fmt.Printf("Wildcard DNS: answering *.%s on %s\n", st.Settings.TLD, d.Address)
+			if d.Active {
+				fmt.Printf("Windows sends *.%s lookups here (NRPT rule); the hosts file is not needed.\n", st.Settings.TLD)
+			} else if d.Resolver == "nrpt" {
+				fmt.Println("The Windows resolver rule is not in place yet: run `devstack hosts` and accept the UAC prompt.")
+			} else {
+				fmt.Printf("Point your resolver at it for *.%s (dnsmasq: server=/%s/127.0.0.1#%d).\n", st.Settings.TLD, st.Settings.TLD, st.Settings.DNSPort)
+			}
+		}
+		return nil
 	case "logs":
 		if err := need(args, 1, "logs <name> [lines]"); err != nil {
 			var names []string

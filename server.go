@@ -68,6 +68,7 @@ type StateView struct {
 	WebOn     bool          `json:"web_on"`
 	ShimsDir  string        `json:"shims_dir"`
 	HostsFile string        `json:"hosts_file"`
+	DNS       dnsStatus     `json:"dns"`
 }
 
 type SettingsView struct {
@@ -78,6 +79,8 @@ type SettingsView struct {
 	WWWDir        string `json:"www_dir"`
 	AutoVhost     bool   `json:"auto_vhost"`
 	ManageHosts   bool   `json:"manage_hosts"`
+	WildcardDNS   bool   `json:"wildcard_dns"`
+	DNSPort       int    `json:"dns_port"`
 	Autostart     bool   `json:"autostart"`
 	OpenBrowser   bool   `json:"open_browser"`
 	DefaultPHP    string `json:"default_php"`
@@ -106,6 +109,7 @@ func (a *App) State() StateView {
 	warnings := append([]string(nil), a.warnings...)
 	phpWarn := a.phpWarnings
 	webOn := a.webWanted
+	dns := a.dnsSnap
 	pools := map[string]*phpPool{}
 	for k, v := range a.pools {
 		pools[k] = v
@@ -120,6 +124,7 @@ func (a *App) State() StateView {
 		Settings: SettingsView{
 			DashboardPort: cfg.DashboardPort, HTTPPort: cfg.HTTPPort, MySQLPort: cfg.MySQL.Port,
 			TLD: cfg.TLD, WWWDir: a.abs(cfg.WWWDir), AutoVhost: cfg.AutoVhost, ManageHosts: cfg.ManageHosts,
+			WildcardDNS: cfg.WildcardDNS, DNSPort: cfg.DNSPort,
 			Autostart: cfg.Autostart, OpenBrowser: cfg.OpenBrowser, DefaultPHP: cfg.DefaultPHP,
 			MySQLFlavor: cfg.MySQL.Flavor, HasRootPass: cfg.MySQL.RootPassword != "",
 		},
@@ -129,6 +134,7 @@ func (a *App) State() StateView {
 		WebOn:     webOn,
 		ShimsDir:  a.path("bin", "shims"),
 		HostsFile: a.hostsFile(cfg),
+		DNS:       dns,
 	}
 	apacheBin := a.apacheBin(cfg)
 	st.Services = append(st.Services, ServiceView{
@@ -729,6 +735,8 @@ func (a *App) updateSettings(body map[string]json.RawMessage) error {
 				err = json.Unmarshal(raw, &c.AutoVhost)
 			case "manage_hosts":
 				err = json.Unmarshal(raw, &c.ManageHosts)
+			case "wildcard_dns":
+				err = json.Unmarshal(raw, &c.WildcardDNS)
 			case "autostart":
 				err = json.Unmarshal(raw, &c.Autostart)
 			case "open_browser":
@@ -753,7 +761,7 @@ func (a *App) updateSettings(body map[string]json.RawMessage) error {
 					}
 					c.WWWDir = a.rel(a.abs(d))
 				}
-			case "http_port", "mysql_port", "dashboard_port":
+			case "http_port", "mysql_port", "dashboard_port", "dns_port":
 				var p int
 				if err = json.Unmarshal(raw, &p); err == nil {
 					if p < 1 || p > 65535 {
@@ -774,6 +782,8 @@ func (a *App) updateSettings(body map[string]json.RawMessage) error {
 						a.mysql.spec.Port = p
 					case "dashboard_port":
 						c.DashboardPort = p
+					case "dns_port":
+						c.DNSPort = p
 					}
 				}
 			default:
@@ -829,6 +839,7 @@ func (a *App) Shutdown() {
 	a.quitOnce.Do(func() {
 		a.log.Printf("shutting down")
 		_ = a.StopAll()
+		a.stopDNS()
 		close(a.quit)
 	})
 }
