@@ -112,6 +112,8 @@ dialog form { padding: 18px; display: flex; flex-direction: column; gap: 12px; m
 dialog h3 { margin: 0; font-size: 16px; }
 dialog ol.steps { margin: 0; padding-left: 20px; max-height: 42vh; overflow: auto; font-size: 13px; }
 dialog ol.steps li { margin-bottom: 6px; }
+fieldset.pick { border: 1px solid var(--border); border-radius: 8px; margin: 0; padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; max-height: 26vh; overflow: auto; font-size: 13px; }
+fieldset.pick legend { display: flex; gap: 6px; align-items: center; font-weight: 600; padding: 0 4px; }
 dialog.wide { width: min(680px, calc(100vw - 32px)); }
 #task-body { padding: 18px; display: flex; flex-direction: column; gap: 12px; max-height: 88vh; overflow: auto; }
 ul.tsteps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
@@ -409,7 +411,11 @@ async function loadImports(fresh) {
 
 async function renderImport(fresh) {
   if (fresh) await loadImports(true);
-  const list = (title, items) => `<div class="small" style="margin-top:6px"><strong>${esc(title)} (${items.length}):</strong> ${items.length ? items.map(esc).join(", ") : '<span class="muted">none</span>'}</div>`;
+  const list = (title, items, done) => {
+    const isDone = n => (done || []).some(d => d.toLowerCase() === n.toLowerCase());
+    const left = items.filter(n => !isDone(n)).length;
+    return `<div class="small" style="margin-top:6px"><strong>${esc(title)} (${left} to import${items.length - left ? ", " + (items.length - left) + " already imported" : ""}):</strong> ${items.length ? items.map(n => isDone(n) ? `<span class="muted" title="already imported"><s>${esc(n)}</s></span>` : esc(n)).join(", ") : '<span class="muted">none</span>'}</div>`;
+  };
   $("#tab-import").innerHTML = `
     <h2>Import existing projects<span class="spacer"></span><button class="btn small" data-act="import-rescan">Look again</button></h2>
     <p class="muted small">Omni Web Server found these local servers on this PC. Importing copies their projects and databases; the old install is not deleted. Every step is shown before anything happens.</p>
@@ -417,8 +423,8 @@ async function renderImport(fresh) {
       <div class="panel svc">
         <div class="top"><span class="dot"></span><span class="name">${esc(s.name)}</span><span class="state mono small" title="${esc(s.root)}">${esc(s.root)}</span></div>
         <div class="meta">${s.php ? "PHP " + esc(s.php) : "PHP version unknown"}${s.flavor ? " · " + esc(s.flavor === "mariadb" ? "MariaDB" : "MySQL") : ""}</div>
-        ${list("Projects", s.projects)}
-        ${list("Databases", s.databases)}
+        ${list("Projects", s.projects, s.imported_projects)}
+        ${list("Databases", s.databases, s.imported_databases)}
         <div class="actions"><button class="btn primary" data-import="${i}">Import…</button></div>
       </div>`).join("")}</div>`;
 }
@@ -643,18 +649,31 @@ async function installDialog(component) {
 
 // importDialog lists every step before anything happens, then starts the import.
 async function importDialog(s) {
-  const list = (title, items) => items.length ? `<div class="small"><strong>${esc(title)}:</strong> ${items.map(esc).join(", ")}</div>` : "";
-  const v = await dialog(`Import from ${s.name}`, `
+  // Checkboxes per project and database; what is already here is shown but
+  // cannot be picked (it is skipped anyway).
+  const picker = (title, kind, items, done) => !items.length ? "" : `
+    <fieldset class="pick"><legend>${esc(title)} <button type="button" class="btn small" data-pick-all="${kind}">All</button><button type="button" class="btn small" data-pick-none="${kind}">None</button></legend>
+      ${items.map(n => {
+        const imported = done.some(d => d.toLowerCase() === n.toLowerCase());
+        return `<label class="${imported ? "muted" : ""}"><input type="checkbox" data-pick="${kind}" value="${esc(n)}" ${imported ? "disabled" : "checked"}> ${esc(n)}${imported ? " <span class='small'>(already imported)</span>" : ""}</label>`;
+      }).join("")}
+    </fieldset>`;
+  const promise = dialog(`Import from ${s.name}`, `
     <div class="small muted">${esc(s.root)}</div>
     <div class="small">Omni Web Server will:</div>
     <ol class="steps">${s.steps.map(x => `<li>${esc(x)}</li>`).join("")}</ol>
-    ${list("Projects", s.projects)}${list("Databases", s.databases)}
+    <div class="small">Choose what to bring over. Projects and databases that already exist in Omni Web Server are skipped.</div>
+    ${picker("Projects", "project", s.projects, s.imported_projects || [])}${picker("Databases", "database", s.databases, s.imported_databases || [])}
     <label>${esc(s.name)}'s MySQL root password<br><input type="password" class="wide" name="password" autocomplete="off" placeholder="${s.has_password ? "detected automatically" : "none"}"></label>
     <div class="hint">Leave empty to use the ${s.has_password ? "detected password" : "default (no password)"}. Progress appears at the top of the page; details go to the <code>import</code> log.</div>`, "Import");
+  const v = await promise;
   if (!v) return;
-  const body = { kind: s.kind, root: s.root };
+  const picked = kind => [...document.querySelectorAll(`#dlg-form input[data-pick="${kind}"]:checked:not(:disabled)`)].map(c => c.value);
+  const body = { kind: s.kind, root: s.root, projects: picked("project"), databases: picked("database") };
+  if (!body.projects.length && !body.databases.length) return toast("Nothing selected to import", true);
   if (v.password) body.password = v.password;
-  await act("POST", "/api/migrate", body, "Import from " + s.name + " started");
+  const task = await act("POST", "/api/migrate", body, "Import from " + s.name + " started");
+  if (task && task.id) loadImports(true);
 }
 
 // phpOK mirrors the server's check of a Composer PHP constraint ("^8.2",
@@ -839,6 +858,10 @@ document.addEventListener("click", async e => {
     }
     if (d.installUrl) return installDialog(d.installUrl);
     if (d.import !== undefined) return importDialog(importCache[+d.import]);
+    if (d.pickAll || d.pickNone) {
+      for (const c of document.querySelectorAll(`#dlg-form input[data-pick="${d.pickAll || d.pickNone}"]:not(:disabled)`)) c.checked = !!d.pickAll;
+      return;
+    }
     if (d.taskClose !== undefined) return $("#task-dlg").close();
     if (d.logOpen) { $("#task-dlg").close(); logName = d.logOpen; return showTab("logs"); }
     if (d.taskOpen) return taskDialog(+d.taskOpen, d.site || "");

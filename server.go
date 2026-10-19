@@ -531,18 +531,20 @@ func (a *App) routes() http.Handler {
 	})
 	mux.HandleFunc("GET /api/tools", handle(func(r *http.Request) (any, error) { return a.listTools(), nil }))
 	mux.HandleFunc("GET /api/migrate", handle(func(r *http.Request) (any, error) {
-		return detectSources(r.URL.Query().Get("fresh") != ""), nil
+		return a.withImported(detectSources(r.URL.Query().Get("fresh") != "")), nil
 	}))
 	mux.HandleFunc("POST /api/migrate", handle(func(r *http.Request) (any, error) {
 		var body struct {
-			Kind     string
-			Root     string
-			Password *string
+			Kind      string
+			Root      string
+			Password  *string
+			Projects  []string // nil: all
+			Databases []string
 		}
 		if err := decode(r, &body); err != nil {
 			return nil, err
 		}
-		t, err := a.startMigration(body.Kind, body.Root, body.Password)
+		t, err := a.startMigration(body.Kind, body.Root, migrateOptions{Password: body.Password, Projects: body.Projects, Databases: body.Databases})
 		if err != nil {
 			return nil, err
 		}
@@ -864,7 +866,7 @@ func (a *App) startInstall(component, version, u string) (*Task, error) {
 		title = "Install " + version
 		fn = func(t *Task) error { return a.installTool(t, version) }
 	case "migrate": // queued by the installer: "migrate:laragon"
-		return a.startMigration(version, "", nil)
+		return a.startMigration(version, "", migrateOptions{})
 	default:
 		return nil, badRequest("unknown component %q", component)
 	}
@@ -971,6 +973,7 @@ func (a *App) Serve(openBrowser bool) error {
 	if err := a.Apply(false); err != nil {
 		a.log.Printf("apply: %v", err)
 	}
+	a.removeUnfinishedProjects()
 	go a.watch()
 	go a.updateLoop()
 	a.startTray()

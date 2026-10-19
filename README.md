@@ -10,11 +10,12 @@
 </p>
 
 > [!NOTE]
-> **Built with Claude Code.** Omni Web Server is an experiment in how well
+> **Made with Claude Code.** Omni Web Server is created by
+> [@spasimirkirov](https://github.com/spasimirkirov), who designs the product
+> and its architecture, and developed with
 > [Claude Code](https://claude.com/claude-code), Anthropic's AI coding agent,
-> can design and build a real developer tool from scratch. Claude Code wrote
-> the code, the installer and these docs. [@spasimirkirov](https://github.com/spasimirkirov)
-> set the direction, tested it on a real machine and reported what broke.
+> which writes the code. The project is also a test of how far that way of
+> working goes for a real developer tool.
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-in%20development-orange" alt="Status: in development">

@@ -29,6 +29,8 @@ type templateVersion struct {
 	Version string `json:"version"` // what is installed: "13.11.0", "8.1.*", "6.8.3"
 	Label   string `json:"label"`   // "13.11.0 (latest)", "7.4 LTS"
 	PHP     string `json:"php,omitempty"`
+
+	line string // release line for the support check: "13", "7.4", "6.8"
 }
 
 type projectTemplate struct {
@@ -42,14 +44,18 @@ type projectTemplate struct {
 
 	pkg  string // Packagist package for composer create-project
 	kind string // laravel | symfony | wordpress | php | html
+	// main: installed from the main branch, like the official laravel new.
+	// The starter kits' tags are old (they predate PHP 8.5), main is current.
+	main bool
 }
 
 func baseTemplates() []projectTemplate {
 	return []projectTemplate{
 		{ID: "laravel", Name: "Laravel", Description: "The PHP framework for web artisans.", Database: true, pkg: "laravel/laravel", kind: "laravel"},
-		{ID: "laravel-react", Name: "Laravel + React", Description: "Laravel starter kit with React, Inertia, TypeScript and Tailwind.", Database: true, Node: true, pkg: "laravel/react-starter-kit", kind: "laravel"},
-		{ID: "laravel-vue", Name: "Laravel + Vue", Description: "Laravel starter kit with Vue, Inertia, TypeScript and Tailwind.", Database: true, Node: true, pkg: "laravel/vue-starter-kit", kind: "laravel"},
-		{ID: "laravel-livewire", Name: "Laravel + Livewire", Description: "Laravel starter kit with Livewire and Tailwind.", Database: true, Node: true, pkg: "laravel/livewire-starter-kit", kind: "laravel"},
+		{ID: "laravel-react", Name: "Laravel + React", Description: "Laravel starter kit with React, Inertia, TypeScript and Tailwind.", Database: true, Node: true, pkg: "laravel/react-starter-kit", kind: "laravel", main: true},
+		{ID: "laravel-vue", Name: "Laravel + Vue", Description: "Laravel starter kit with Vue, Inertia, TypeScript and Tailwind.", Database: true, Node: true, pkg: "laravel/vue-starter-kit", kind: "laravel", main: true},
+		{ID: "laravel-svelte", Name: "Laravel + Svelte", Description: "Laravel starter kit with Svelte, Inertia, TypeScript and Tailwind.", Database: true, Node: true, pkg: "laravel/svelte-starter-kit", kind: "laravel", main: true},
+		{ID: "laravel-livewire", Name: "Laravel + Livewire", Description: "Laravel starter kit with Livewire and Tailwind.", Database: true, Node: true, pkg: "laravel/livewire-starter-kit", kind: "laravel", main: true},
 		{ID: "wordpress", Name: "WordPress", Description: "Blog and CMS. Installed with your site title and admin account.", Database: true, kind: "wordpress"},
 		{ID: "symfony", Name: "Symfony", Description: "Symfony skeleton, optionally as a full web app.", Database: true, pkg: "symfony/skeleton", kind: "symfony"},
 		{ID: "php", Name: "Blank PHP", Description: "An empty project with an index.php.", Database: true, kind: "php"},
@@ -78,6 +84,8 @@ func (a *App) templates(fresh bool) []projectTemplate {
 			defer wg.Done()
 			var err error
 			switch {
+			case t.main:
+				t.Versions, err = packagistMain(t.pkg)
 			case t.pkg != "":
 				t.Versions, err = packagistVersions(t.pkg, t.kind == "symfony")
 			case t.kind == "wordpress":
@@ -88,7 +96,16 @@ func (a *App) templates(fresh bool) []projectTemplate {
 			}
 		}(&list[i])
 	}
+	var support map[string]map[string]eolCycle
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		support = supportedCycles("laravel", "symfony", "wordpress")
+	}()
 	wg.Wait()
+	for i := range list {
+		list[i].Versions = keepSupported(&list[i], support)
+	}
 	templateCache.list, templateCache.at = list, time.Now()
 	return list
 }
@@ -133,11 +150,11 @@ func packagistVersions(pkg string, byMinor bool) ([]templateVersion, error) {
 		if byMinor {
 			line = m[1] + "." + m[2]
 		}
-		if seen[line] || len(out) == 5 {
+		if seen[line] || len(out) == 12 {
 			continue
 		}
 		seen[line] = true
-		tv := templateVersion{Version: strings.TrimPrefix(ver, "v"), Label: strings.TrimPrefix(ver, "v"), PHP: php}
+		tv := templateVersion{Version: strings.TrimPrefix(ver, "v"), Label: strings.TrimPrefix(ver, "v"), PHP: php, line: line}
 		if byMinor {
 			// Symfony skeletons are tagged x.y.99; install the x.y line.
 			tv.Version, tv.Label = line+".*", line
@@ -154,6 +171,150 @@ func packagistVersions(pkg string, byMinor bool) ([]templateVersion, error) {
 		return nil, fmt.Errorf("no releases found for %s", pkg)
 	}
 	return out, nil
+}
+
+// eolCycle is one release line on endoflife.date.
+type eolCycle struct {
+	Cycle   string          `json:"cycle"`
+	EOL     json.RawMessage `json:"eol"`     // false, true or "2027-02-24"
+	Support json.RawMessage `json:"support"` // same; WordPress only patches what this marks
+	PHP     string          `json:"supportedPhpVersions"`
+}
+
+// active reads an endoflife.date field: false/true or a date. For "eol",
+// active means the date has not passed; for "support", true or a future date.
+func eolActive(raw json.RawMessage, isEOL bool) bool {
+	var b bool
+	if json.Unmarshal(raw, &b) == nil {
+		return b != isEOL
+	}
+	var d string
+	if json.Unmarshal(raw, &d) == nil {
+		if t, err := time.Parse("2006-01-02", d); err == nil {
+			return time.Now().Before(t.Add(24 * time.Hour))
+		}
+	}
+	return false
+}
+
+// supportedCycles asks endoflife.date which release lines still get fixes.
+// A product missing from the result could not be checked.
+func supportedCycles(products ...string) map[string]map[string]eolCycle {
+	out := map[string]map[string]eolCycle{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, prod := range products {
+		wg.Add(1)
+		go func(prod string) {
+			defer wg.Done()
+			resp, err := httpGet("https://endoflife.date/api/"+prod+".json", "")
+			if err != nil {
+				return
+			}
+			defer resp.Body.Close()
+			var cycles []eolCycle
+			if json.NewDecoder(resp.Body).Decode(&cycles) != nil {
+				return
+			}
+			m := map[string]eolCycle{}
+			for _, c := range cycles {
+				ok := eolActive(c.EOL, true)
+				if prod == "wordpress" {
+					ok = eolActive(c.Support, false)
+				}
+				if ok {
+					m[c.Cycle] = c
+				}
+			}
+			mu.Lock()
+			out[prod] = m
+			mu.Unlock()
+		}(prod)
+	}
+	wg.Wait()
+	return out
+}
+
+// phpRange turns endoflife.date's "8.3 - 8.5" into a constraint with an upper
+// bound, so a framework is not paired with a PHP newer than it supports.
+func phpRange(r string) string {
+	lo, hi, ok := strings.Cut(r, " - ")
+	hv, okv := parseVersion(strings.TrimSpace(hi) + ".0")
+	if !ok || !okv {
+		return ""
+	}
+	return fmt.Sprintf(">=%s <%d.%d", strings.TrimSpace(lo), hv[0], hv[1]+1)
+}
+
+// keepSupported drops release lines that no longer get fixes (they tend to
+// break on current PHP) and adds the supported PHP range. When the support
+// data is unavailable only the newest version is offered.
+func keepSupported(t *projectTemplate, support map[string]map[string]eolCycle) []templateVersion {
+	prod := map[string]string{"laravel": "laravel", "symfony": "symfony", "wordpress": "wordpress"}[t.kind]
+	if prod == "" || len(t.Versions) == 0 {
+		return t.Versions
+	}
+	cycles, known := support[prod]
+	if t.main {
+		// Starter kits follow the newest Laravel: use its PHP range.
+		newest, best := "", -1
+		for c := range cycles {
+			if n, err := strconv.Atoi(c); err == nil && n > best {
+				newest, best = c, n
+			}
+		}
+		if r := phpRange(cycles[newest].PHP); r != "" {
+			t.Versions[0].PHP = r
+		}
+		return t.Versions
+	}
+	if !known {
+		v := t.Versions[0]
+		v.Label += " (support status unknown)"
+		return []templateVersion{v}
+	}
+	var out []templateVersion
+	for _, v := range t.Versions {
+		c, ok := cycles[v.line]
+		if !ok {
+			continue
+		}
+		if r := phpRange(c.PHP); r != "" {
+			v.PHP = r
+		}
+		out = append(out, v)
+		if len(out) == 5 {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return t.Versions[:1]
+	}
+	return out
+}
+
+// packagistMain offers the main branch of a package (with its PHP requirement).
+func packagistMain(pkg string) ([]templateVersion, error) {
+	resp, err := httpGet("https://repo.packagist.org/p2/"+pkg+"~dev.json", "")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var data struct {
+		Packages map[string][]struct {
+			Version string            `json:"version"`
+			Require map[string]string `json:"require"`
+		} `json:"packages"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+	for _, v := range data.Packages[pkg] {
+		if v.Version == "dev-main" {
+			return []templateVersion{{Version: "dev-main", Label: "latest (main branch, as laravel new installs it)", PHP: v.Require["php"]}}, nil
+		}
+	}
+	return nil, fmt.Errorf("no main branch found for %s", pkg)
 }
 
 // wordpressVersions lists the newest patch release of the five newest
@@ -196,14 +357,14 @@ func wordpressVersions() ([]templateVersion, error) {
 	sort.Slice(vers, func(i, j int) bool { return versionNewer(vers[i], vers[j]) })
 	var out []templateVersion
 	for i, n := range vers {
-		if i == 5 {
+		if i == 12 {
 			break
 		}
 		v := fmt.Sprintf("%d.%d", n[0], n[1])
 		if n[2] > 0 {
 			v += fmt.Sprintf(".%d", n[2])
 		}
-		tv := templateVersion{Version: v, Label: v, PHP: ">=7.4"}
+		tv := templateVersion{Version: v, Label: v, PHP: ">=7.4", line: fmt.Sprintf("%d.%d", n[0], n[1])}
 		if i == 0 {
 			tv.Label += " (latest)"
 		}
@@ -484,6 +645,19 @@ func (a *App) createProject(t *Task, tpl projectTemplate, p newProject, stage, d
 	return nil
 }
 
+// removeUnfinishedProjects deletes build folders left behind when Omni Web
+// Server was closed while creating a project.
+func (a *App) removeUnfinishedProjects() {
+	www := a.abs(a.config().WWWDir)
+	entries, _ := os.ReadDir(www)
+	for _, e := range entries {
+		if e.IsDir() && strings.HasPrefix(e.Name(), ".omni-new-") {
+			a.log.Printf("removing the unfinished project %s", e.Name())
+			_ = os.RemoveAll(filepath.Join(www, e.Name()))
+		}
+	}
+}
+
 // publishProject moves the finished project into www and serves it with the
 // chosen PHP version.
 func (a *App) publishProject(p newProject, stage, dir string) error {
@@ -603,11 +777,13 @@ func (a *App) toolEnv(minor string) []string {
 		dirs = append(dirs, d)
 	}
 	dirs = append(dirs, a.path("bin", "shims"))
-	env := []string{"PHP_INI_SCAN_DIR=", "COMPOSER_NO_INTERACTION=1", "COMPOSER_ALLOW_SUPERUSER=1"}
+	// PHPRC makes every PHP started below (Composer's "@php artisan", scripts
+	// that call php themselves) load this version's php.ini and extensions.
+	env := []string{"PHP_INI_SCAN_DIR=", "PHPRC=" + filepath.Dir(a.phpIniPath(minor)), "COMPOSER_NO_INTERACTION=1", "COMPOSER_ALLOW_SUPERUSER=1"}
 	for _, e := range os.Environ() {
 		if k, v, ok := strings.Cut(e, "="); ok && strings.EqualFold(k, "PATH") {
 			env = append(env, k+"="+strings.Join(dirs, string(os.PathListSeparator))+string(os.PathListSeparator)+v)
-		} else if !strings.EqualFold(k, "PHP_INI_SCAN_DIR") {
+		} else if !strings.EqualFold(k, "PHP_INI_SCAN_DIR") && !strings.EqualFold(k, "PHPRC") {
 			env = append(env, e)
 		}
 	}
@@ -624,6 +800,9 @@ func (a *App) composer(t *Task, minor, dir string, args ...string) error {
 	full = append(full, "--no-interaction", "--no-progress", "--no-ansi")
 	if args[0] == "create-project" {
 		full = append(full, "--prefer-dist")
+		if strings.Contains(args[1], ":dev-") {
+			full = append(full, "--stability=dev")
+		}
 	}
 	return a.runLogged(t, "composer "+strings.Join(args, " "), dir, a.toolEnv(minor), a.phpCLI(p), full...)
 }

@@ -35,6 +35,10 @@ type migrationSource struct {
 	PHP         string   `json:"php"`    // full version, e.g. 8.3.30
 	HasPassword bool     `json:"has_password"`
 	Steps       []string `json:"steps"`
+	// Already in Omni Web Server (same folder or database name), filled in by
+	// the dashboard API; these are skipped.
+	ImportedProjects  []string `json:"imported_projects"`
+	ImportedDatabases []string `json:"imported_databases"`
 
 	password string
 }
@@ -302,16 +306,80 @@ var foreignServerNames = map[string]bool{
 
 // runMigration performs the import. password, when not nil, overrides the
 // detected MySQL root password of the old stack.
-func (a *App) runMigration(t *Task, kind, root string, password *string) error {
+// migrateOptions narrows an import. nil lists mean everything.
+type migrateOptions struct {
+	Password  *string
+	Projects  []string
+	Databases []string
+}
+
+// withImported marks the projects and databases that already exist here.
+func (a *App) withImported(srcs []migrationSource) []migrationSource {
+	cfg := a.config()
+	www := a.abs(cfg.WWWDir)
+	var dbs []string
+	if a.mysql.Running() {
+		dbs, _ = a.listDatabases(cfg)
+	}
+	out := make([]migrationSource, len(srcs))
+	for i, s := range srcs {
+		s.ImportedProjects, s.ImportedDatabases = []string{}, []string{}
+		for _, p := range s.Projects {
+			if exists(filepath.Join(www, p)) {
+				s.ImportedProjects = append(s.ImportedProjects, p)
+			}
+		}
+		for _, d := range s.Databases {
+			for _, have := range dbs {
+				if strings.EqualFold(have, d) {
+					s.ImportedDatabases = append(s.ImportedDatabases, d)
+				}
+			}
+		}
+		out[i] = s
+	}
+	return out
+}
+
+// selectNames keeps the names in want (all when want is nil) that are not
+// already imported.
+func selectNames(all, want, imported []string) []string {
+	out := []string{}
+	for _, n := range all {
+		if (want == nil || containsFold(want, n)) && !containsFold(imported, n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+func containsFold(list []string, s string) bool {
+	for _, x := range list {
+		if strings.EqualFold(x, s) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) runMigration(t *Task, kind, root string, opts migrateOptions) error {
 	src, err := findSource(kind, root)
 	if err != nil {
 		return err
 	}
-	if password != nil {
-		src.password = *password
+	if opts.Password != nil {
+		src.password = *opts.Password
 	}
+	marked := a.withImported([]migrationSource{src})[0]
+	src.Projects = selectNames(src.Projects, opts.Projects, marked.ImportedProjects)
+	src.Databases = selectNames(src.Databases, opts.Databases, marked.ImportedDatabases)
 	report := &importReport{a: a}
 	report.add("Import from %s (%s) started", src.Name, src.Root)
+	report.add("projects: %s", strings.Join(src.Projects, ", "))
+	report.add("databases: %s", strings.Join(src.Databases, ", "))
+	if n := len(marked.ImportedProjects) + len(marked.ImportedDatabases); n > 0 {
+		report.add("already imported, skipped: %s", strings.Join(append(append([]string{}, marked.ImportedProjects...), marked.ImportedDatabases...), ", "))
+	}
 	defer report.save()
 
 	// 1. our own stack
@@ -782,14 +850,17 @@ func copyFile(src, dest string) error {
 	return os.Chtimes(dest, st.ModTime(), st.ModTime())
 }
 
-func (a *App) startMigration(kind, root string, password *string) (*Task, error) {
+func (a *App) startMigration(kind, root string, opts migrateOptions) (*Task, error) {
 	src, err := findSource(kind, root)
 	if err != nil {
 		return nil, badRequest("%v", err)
+	}
+	if opts.Projects != nil && opts.Databases != nil && len(opts.Projects) == 0 && len(opts.Databases) == 0 {
+		return nil, badRequest("choose at least one project or database to import")
 	}
 	title := "Import from " + src.Name
 	if a.tasks.Busy(title) {
 		return nil, badRequest("%s is already running", title)
 	}
-	return a.tasks.Run(title, func(t *Task) error { return a.runMigration(t, kind, src.Root, password) }), nil
+	return a.tasks.Run(title, func(t *Task) error { return a.runMigration(t, kind, src.Root, opts) }), nil
 }

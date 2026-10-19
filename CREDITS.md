@@ -5,12 +5,12 @@ people's excellent software. None of the components below is bundled with
 Omni Web Server. Each one is downloaded from its official source only when you
 choose to install it, and it stays under its own license.
 
-## Built by
+## Made by
 
-- **[Claude Code](https://claude.com/claude-code)** by Anthropic wrote the code,
-  the installer and the documentation.
-- **[Spasimir Kirov](https://github.com/spasimirkirov)** set the direction,
-  tested it and reported what broke.
+- **[Spasimir Kirov](https://github.com/spasimirkirov)**: author, product
+  design and architecture.
+- Developed with **[Claude Code](https://claude.com/claude-code)**, Anthropic's
+  AI coding agent.
 
 ## Server components
 

@@ -155,3 +155,6 @@ func isDirPath(p string) bool {
 func (a *App) startTray()                                   {}
 func closeTray()                                            {}
 func (a *App) trayBalloon(title, text string, isError bool) {}
+
+// singleInstance is Windows-only; elsewhere the dashboard port check is enough.
+func singleInstance() bool { return true }

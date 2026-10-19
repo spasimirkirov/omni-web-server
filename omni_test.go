@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -522,5 +523,42 @@ func TestRoutesRegister(t *testing.T) {
 	}
 	if a.routes() == nil {
 		t.Fatal("no handler")
+	}
+}
+
+func TestKeepSupported(t *testing.T) {
+	support := map[string]map[string]eolCycle{"laravel": {
+		"13": {Cycle: "13", PHP: "8.3 - 8.5"},
+		"12": {Cycle: "12", PHP: "8.2 - 8.5"},
+	}}
+	tpl := projectTemplate{kind: "laravel", Versions: []templateVersion{
+		{Version: "13.11.0", line: "13"}, {Version: "12.12.2", line: "12"}, {Version: "11.6.1", line: "11"}, {Version: "10.3.3", line: "10"},
+	}}
+	got := keepSupported(&tpl, support)
+	if len(got) != 2 || got[0].PHP != ">=8.3 <8.6" || got[1].PHP != ">=8.2 <8.6" {
+		t.Fatalf("supported = %+v", got)
+	}
+	if phpSatisfies(got[1].PHP, "8.6") || !phpSatisfies(got[1].PHP, "8.5") || phpSatisfies(got[0].PHP, "8.2") {
+		t.Fatal("PHP range check")
+	}
+	// Without support data only the newest version is offered.
+	if got := keepSupported(&tpl, nil); len(got) != 1 || got[0].Version != "13.11.0" {
+		t.Fatalf("unknown support = %+v", got)
+	}
+	if !eolActive(json.RawMessage(`false`), true) || eolActive(json.RawMessage(`"2001-01-01"`), true) || !eolActive(json.RawMessage(`true`), false) {
+		t.Fatal("eolActive")
+	}
+}
+
+func TestSelectNames(t *testing.T) {
+	all := []string{"blog", "Shop", "lab"}
+	if got := strings.Join(selectNames(all, nil, []string{"shop"}), ","); got != "blog,lab" {
+		t.Fatalf("all minus imported = %q", got)
+	}
+	if got := strings.Join(selectNames(all, []string{"lab", "blog"}, nil), ","); got != "blog,lab" {
+		t.Fatalf("picked = %q", got)
+	}
+	if got := selectNames(all, []string{}, nil); len(got) != 0 {
+		t.Fatalf("none picked = %v", got)
 	}
 }

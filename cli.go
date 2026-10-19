@@ -138,6 +138,9 @@ func cmdServe(root string, browser bool) error {
 		}
 		return nil
 	}
+	if !singleInstance() {
+		return errors.New("Omni Web Server is already running from another folder. Quit it first (tray icon → Quit Omni Web Server)")
+	}
 	initProcessGroup()
 	app, err := NewApp(root, "")
 	if err != nil {

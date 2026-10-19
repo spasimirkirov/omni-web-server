@@ -83,6 +83,15 @@ func showError(msg string) {
 	procMessageBox.Call(0, uintptr(unsafe.Pointer(text)), uintptr(unsafe.Pointer(title)), mbIconError)
 }
 
+// singleInstance claims a per-user mutex so only one Omni Web Server runs at
+// a time, whichever folder it is in. The handle stays open until exit.
+func singleInstance() bool {
+	name, _ := syscall.UTF16PtrFromString(`Local\OmniWebServer.Serve`)
+	h, _, err := kernel32.NewProc("CreateMutexW").Call(0, 0, uintptr(unsafe.Pointer(name)))
+	const errorAlreadyExists = syscall.Errno(183)
+	return h != 0 && err != errorAlreadyExists
+}
+
 // initProcessGroup puts Omni Web Server in a job object that kills every child
 // (Apache, php-cgi, mysqld) when Omni Web Server exits, even if it is closed abruptly.
 func initProcessGroup() {
