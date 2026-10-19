@@ -573,6 +573,20 @@ func (a *App) routes() http.Handler {
 		u, err := a.startShare(r.PathValue("name"))
 		return map[string]string{"url": u}, err
 	}))
+	mux.HandleFunc("GET /api/templates", handle(func(r *http.Request) (any, error) {
+		return a.templates(r.URL.Query().Get("fresh") != ""), nil
+	}))
+	mux.HandleFunc("POST /api/projects", handle(func(r *http.Request) (any, error) {
+		var body newProject
+		if err := decode(r, &body); err != nil {
+			return nil, err
+		}
+		t, err := a.startNewProject(body)
+		if err != nil {
+			return nil, err
+		}
+		return t.View(), nil
+	}))
 	mux.HandleFunc("POST /api/update/check", handle(func(r *http.Request) (any, error) {
 		return a.checkUpdate(), nil
 	}))

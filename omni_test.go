@@ -477,3 +477,32 @@ func TestNewestRelease(t *testing.T) {
 		t.Fatal("1.2 parsed")
 	}
 }
+
+func TestPHPSatisfies(t *testing.T) {
+	cases := []struct {
+		c, php string
+		want   bool
+	}{
+		{"^8.2", "8.3", true}, {"^8.2", "8.1", false}, {"^8.3", "8.3", true},
+		{">=8.4", "8.3", false}, {">=8.4", "8.5", true}, {"^7.3|^8.0", "8.2", true},
+		{"^7.3|^8.0", "7.2", false}, {">=7.4", "8.5", true}, {"", "8.0", true},
+	}
+	for _, c := range cases {
+		if got := phpSatisfies(c.c, c.php); got != c.want {
+			t.Errorf("phpSatisfies(%q, %q) = %v", c.c, c.php, got)
+		}
+	}
+}
+
+func TestSetEnvValues(t *testing.T) {
+	p := filepath.Join(t.TempDir(), ".env")
+	os.WriteFile(p, []byte("APP_NAME=Laravel\nDB_CONNECTION=sqlite\n# DB_HOST=127.0.0.1\n# DB_DATABASE=laravel\n"), 0o644)
+	if err := setEnvValues(p, map[string]string{"APP_NAME": envQuote("My Blog"), "DB_CONNECTION": "mysql", "DB_HOST": "127.0.0.1", "DB_DATABASE": "blog", "DB_PASSWORD": ""}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(p)
+	want := "APP_NAME=\"My Blog\"\nDB_CONNECTION=mysql\nDB_HOST=127.0.0.1\nDB_DATABASE=blog\nDB_PASSWORD=\n"
+	if string(b) != want {
+		t.Fatalf("got %q", b)
+	}
+}

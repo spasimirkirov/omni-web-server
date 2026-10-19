@@ -45,6 +45,7 @@ installer sets it up.
 | | |
 |---|---|
 | **Automatic sites** | Every folder in `www` becomes `http://<folder>.local`. Each project has an on/off switch. |
+| **New project from a template** | **New project…** creates a ready-to-use site in `www`: Laravel (also with the React, Vue or Livewire starter kit), WordPress, Symfony, plain PHP or static HTML. Pick one of the five newest versions, the PHP version and a database name. Omni Web Server creates the database, fills in `.env` or `wp-config.php`, runs the migrations or the WordPress installer, and builds the front end. |
 | **Framework detection** | The right document root is picked automatically for Laravel, Symfony, CodeIgniter 4 (`public/`), Yii and Craft (`web/`), and WordPress. You can override it. |
 | **PHP per project** | Install any number of PHP versions and choose one per project. Toggle extensions and edit `php.ini` per version. **Xdebug** is one click away. |
 | **Databases** | MySQL 8.4 or MariaDB 11.4, ready to use with any client (HeidiSQL, DBeaver, PhpStorm). Adminer is optional. |
@@ -96,7 +97,11 @@ databases, downloaded components and settings. Your projects are always kept.
 
 ## Guides
 
-### Laravel in 30 seconds
+### A new project in a minute
+
+On the **Overview** tab, click **New project…** and choose a template, a version, the PHP version and a database name. For WordPress you also enter the site title and the admin account. Progress appears at the top of the dashboard, and the full output goes to the `projects` log. When it finishes, the site is live at `http://<name>.local`.
+
+### Laravel by hand
 
 ```bat
 cd D:\Projects
