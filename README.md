@@ -55,6 +55,7 @@ installer sets it up.
 | **Share a site** | One click gives a public `https://….trycloudflare.com` URL for webhooks or showing a client. |
 | **Developer apps** | Git, VS Code, PhpStorm, HeidiSQL, DBeaver, Windows Terminal, Docker Desktop and others install through winget. |
 | **Tray icon** | Right-click the icon next to the clock to open the dashboard, start, stop or restart services, open the projects or logs folder, or quit. Double-click opens the dashboard. |
+| **Update check** | Once a day it asks GitHub for a newer version and shows a banner in the dashboard and an entry in the tray menu. You download and run the new installer yourself; settings and data are kept. Turn it off under **Settings → Updates**. |
 | **Tidy** | It manages the hosts file for you and restarts services that crash. Nothing keeps running after you quit. Uninstalling undoes every system change. |
 
 ## Install
