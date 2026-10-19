@@ -2,7 +2,9 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"log"
@@ -307,5 +309,48 @@ func TestDNSMalformed(t *testing.T) {
 	// responses (QR set) are ignored
 	if s.answer([]byte{0, 1, 0x80, 0, 0, 1, 0, 0, 0, 0, 0, 0}) != nil {
 		t.Fatal("answered a response packet")
+	}
+}
+
+func TestSiteCertificates(t *testing.T) {
+	root := t.TempDir()
+	a := &App{root: root, log: log.New(io.Discard, "", 0), versions: map[string]string{}}
+	sites := []Site{{Name: "blog", Host: "blog.local", Enabled: true}, {Name: "off", Host: "off.local"}}
+	certs, err := a.prepareSSL(defaultConfig(), sites)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := certs["off.local"]; ok {
+		t.Fatal("disabled sites must not get certificates")
+	}
+	caDER, _ := readPEM(a.caCertPath())
+	ca, _ := x509.ParseCertificate(caDER)
+	pool := x509.NewCertPool()
+	pool.AddCert(ca)
+	der, _ := readPEM(certs["blog.local"][0])
+	leaf, _ := x509.ParseCertificate(der)
+	for _, name := range []string{"blog.local", "api.blog.local"} {
+		if _, err := leaf.Verify(x509.VerifyOptions{DNSName: name, Roots: pool}); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	if _, err := leaf.Verify(x509.VerifyOptions{DNSName: "shop.local", Roots: pool}); err == nil {
+		t.Fatal("certificate must not cover other sites")
+	}
+	// A second run reuses the CA and the certificate.
+	certs2, _ := a.prepareSSL(defaultConfig(), sites)
+	der2, _ := readPEM(certs2["blog.local"][0])
+	if !bytes.Equal(der, der2) {
+		t.Fatal("certificate was reissued without need")
+	}
+	if b, _ := os.ReadFile(a.caBundlePath()); !strings.Contains(string(b), "BEGIN CERTIFICATE") {
+		t.Fatal("CA bundle for PHP not written")
+	}
+	conf := renderApacheConf(apacheInput{Port: 80, HTTPSPort: 443, Tmp: "/t", LocalCert: certs["localhost"],
+		Vhosts: []apacheVhost{{Name: "blog", Host: "blog.local", DocRoot: "/w/blog/public", Cert: "/c.crt", Key: "/c.key"}}})
+	for _, want := range []string{"Listen 443", "<VirtualHost *:443>", `SSLCertificateFile "/c.crt"`, "SSLEngine on", "SSLSessionCache"} {
+		if !strings.Contains(conf, want) {
+			t.Errorf("config missing %q", want)
+		}
 	}
 }

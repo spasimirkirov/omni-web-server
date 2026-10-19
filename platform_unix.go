@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 )
@@ -93,4 +94,36 @@ func applyResolverRule(namespace string, port int) error {
 		return nil
 	}
 	return errResolverUnsupported
+}
+
+const unixCAPath = "/usr/local/share/ca-certificates/devstack-ca.crt"
+
+// trustCA installs the CA into the system store (Debian/Ubuntu layout).
+// Browsers with their own NSS store (Firefox/Chrome on Linux) need it imported there too.
+func trustCA(path string) error {
+	if os.Geteuid() != 0 || !isDirPath(filepath.Dir(unixCAPath)) {
+		return fmt.Errorf("copy %s to your system/browser trust store (e.g. sudo cp it to %s && sudo update-ca-certificates)", path, unixCAPath)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(unixCAPath, b, 0o644); err != nil {
+		return err
+	}
+	if out, err := exec.Command("update-ca-certificates").CombinedOutput(); err != nil {
+		return fmt.Errorf("update-ca-certificates: %v %s", err, out)
+	}
+	return nil
+}
+
+func caInstalled(thumb, path string) bool {
+	a, err1 := os.ReadFile(path)
+	b, err2 := os.ReadFile(unixCAPath)
+	return err1 == nil && err2 == nil && string(a) == string(b)
+}
+
+func isDirPath(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
 }

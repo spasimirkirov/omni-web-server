@@ -190,7 +190,11 @@ async function act(method, path, body, okMsg) {
   }
 }
 
-function hostURL(host) {
+function hostURL(host, plain) {
+  if (S.settings.ssl && S.ssl.ca && !S.ssl.error && !plain) {
+    const p = S.settings.https_port;
+    return "https://" + host + (p === 443 ? "" : ":" + p) + "/";
+  }
   const p = S.settings.http_port;
   return "http://" + host + (p === 80 ? "" : ":" + p) + "/";
 }
@@ -283,7 +287,7 @@ function siteRow(s) {
     <td><label class="switch" title="${s.enabled ? "Disable" : "Enable"} vhost"><input type="checkbox" data-site-toggle="${esc(s.name)}" ${s.enabled ? "checked" : ""} ${s.missing ? "disabled" : ""}><span></span></label></td>
     <td><strong>${esc(s.name)}</strong> <span class="badge ${esc(s.framework)}">${esc(s.framework)}</span>${s.external ? ` <span class="badge" title="${esc(s.path)}">external</span>` : ""}
       ${s.warning ? `<div class="err">${esc(s.warning)}</div>` : ""}</td>
-    <td>${s.enabled && !s.missing ? `<a href="${esc(hostURL(s.host))}" target="_blank" rel="noopener">${esc(s.host)}</a>` : `<span class="muted">${esc(s.host)}</span>`}</td>
+    <td>${s.enabled && !s.missing ? `<a href="${esc(hostURL(s.host))}" target="_blank" rel="noopener">${S.settings.ssl && S.ssl.ca && !S.ssl.error ? lockIcon() : ""}${esc(s.host)}</a>` : `<span class="muted">${esc(s.host)}</span>`}</td>
     <td><select data-site-php="${esc(s.name)}" aria-label="PHP version for ${esc(s.name)}">${phpOptions(s.php_setting)}</select></td>
     <td class="path mono" title="${esc(s.docroot)}">${esc(rel)}${s.docroot_override ? ` <span class="badge">custom</span>` : ""}</td>
     <td style="white-space:nowrap;text-align:right">
@@ -293,6 +297,10 @@ function siteRow(s) {
       ${s.external ? `<button class="btn small danger" data-site-remove="${esc(s.name)}">Remove</button>` : ""}
     </td>
   </tr>`;
+}
+
+function lockIcon() {
+  return `<svg width="11" height="11" viewBox="0 0 16 16" style="margin-right:4px;vertical-align:-1px" aria-label="HTTPS"><path fill="currentColor" d="M4 7V5a4 4 0 1 1 8 0v2h1a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h1zm2 0h4V5a2 2 0 1 0-4 0v2z"/></svg>`;
 }
 
 let phpFilter = "";
@@ -412,6 +420,26 @@ function dnsStatusHTML() {
   return html;
 }
 
+function sslStatusHTML() {
+  const x = S.ssl;
+  if (!S.settings.ssl && !x.ca) return "";
+  let html = "";
+  if (S.settings.ssl && !x.available) html += `<label>Status</label><div class="err">Apache has no mod_ssl, so HTTPS is unavailable.</div>`;
+  else if (x.error) html += `<label>Status</label><div class="err">${esc(x.error)}</div>`;
+  if (x.ca) {
+    html += `<label>Local CA</label><div>
+      ${x.trusted ? `<span class="dot running" style="display:inline-block;margin-right:6px"></span>Trusted by this PC`
+                  : `<span class="dot failed" style="display:inline-block;margin-right:6px"></span>Not trusted yet: browsers will warn until you trust it.`}
+      <div class="row" style="margin-top:8px">
+        ${x.trusted ? "" : `<button class="btn primary small" data-act="ssl-trust">Trust certificate</button>`}
+        <a class="btn small" href="/api/ssl/ca.crt" download>Download CA</a>
+      </div>
+      <div class="hint">Expires ${esc(x.expires)}. ${S.platform === "windows" ? "Trusting adds it to your Windows user certificate store, which Chrome and Edge use (Firefox too when security.enterprise_roots.enabled is on). " : ""}To test on a phone or another browser, install the downloaded CA there. Never share the private key in etc/ssl.</div>
+    </div>`;
+  }
+  return html;
+}
+
 function renderSettings() {
   const st = S.settings;
   const sw = (key, label, hint) => `<label>${label}</label><div><label class="switch"><input type="checkbox" data-setting="${key}" ${st[key] ? "checked" : ""}><span></span></label>${hint ? `<div class="hint">${hint}</div>` : ""}</div>`;
@@ -426,9 +454,15 @@ function renderSettings() {
       <label for="s-www">Projects folder</label><div><input type="text" class="wide mono" id="s-www" value="${esc(st.www_dir)}"></div>
       <label></label><div class="row"><button class="btn primary" data-act="save-settings">Save</button><button class="btn" data-act="hosts-sync">Rewrite hosts file now</button></div>
     </div></div>
+    <h2>HTTPS</h2>
+    <div class="panel pad"><div class="form-grid">
+      ${sw("ssl", "Enable HTTPS", "Every enabled site is also served at <code>https://name." + esc(st.tld) + "</code> (and its subdomains) with a certificate from DevStack's local CA.")}
+      ${sslStatusHTML()}
+    </div></div>
     <h2>Ports</h2>
     <div class="panel pad"><div class="form-grid">
       <label for="s-http">Apache (HTTP)</label><div><input type="number" id="s-http" value="${st.http_port}" style="width:110px"></div>
+      <label for="s-https">Apache (HTTPS)</label><div><input type="number" id="s-https" value="${st.https_port}" style="width:110px"></div>
       <label for="s-mysql">MySQL</label><div><input type="number" id="s-mysql" value="${st.mysql_port}" style="width:110px"></div>
       <label for="s-dns">Wildcard DNS</label><div><input type="number" id="s-dns" value="${st.dns_port}" style="width:110px"><div class="hint">Windows requires 53.</div></div>
       <label for="s-dash">Dashboard</label><div><input type="number" id="s-dash" value="${st.dashboard_port}" style="width:110px"><div class="hint">Takes effect after restarting DevStack.</div></div>
@@ -555,6 +589,7 @@ document.addEventListener("click", async e => {
       case "stop-all": return act("POST", "/api/services/all/stop", undefined, "Services stopped");
       case "rescan": return act("POST", "/api/rescan");
       case "hosts-sync": return act("POST", "/api/hosts/sync", undefined, "Hosts file updated");
+      case "ssl-trust": await act("POST", "/api/ssl/trust", undefined, "Certificate trusted. Reload your https:// tabs."); return renderSettings();
       case "add-site": {
         const v = await dialog("Add a vhost for a folder outside www", `
           ${field("Name", "name", 'required placeholder="shop"', "Served at name." + esc(S.settings.tld))}
@@ -586,7 +621,7 @@ document.addEventListener("click", async e => {
         return renderSettings();
       }
       case "save-ports": {
-        await act("POST", "/api/settings", { http_port: +$("#s-http").value, mysql_port: +$("#s-mysql").value, dns_port: +$("#s-dns").value, dashboard_port: +$("#s-dash").value }, "Ports saved");
+        await act("POST", "/api/settings", { http_port: +$("#s-http").value, https_port: +$("#s-https").value, mysql_port: +$("#s-mysql").value, dns_port: +$("#s-dns").value, dashboard_port: +$("#s-dash").value }, "Ports saved");
         return renderSettings();
       }
       case "quit": if (confirm("Stop all services and quit DevStack?")) await api("POST", "/api/quit"); return;

@@ -248,7 +248,11 @@ func (a *App) renderPHPIni(minor string, p *PHPInstall) string {
 		{"upload_tmp_dir", slash(a.path("tmp", "uploads"))},
 		{"sys_temp_dir", slash(a.path("tmp"))},
 	}
-	if ca := a.path("etc", "ssl", "cacert.pem"); exists(ca) {
+	ca := a.caBundlePath()
+	if !exists(ca) {
+		ca = a.path("etc", "ssl", "cacert.pem")
+	}
+	if exists(ca) {
 		fixed = append(fixed, [2]string{"curl.cainfo", slash(ca)}, [2]string{"openssl.cafile", slash(ca)})
 	}
 	for _, kv := range fixed {

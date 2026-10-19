@@ -23,6 +23,7 @@ type apacheModule struct{ Name, Path string }
 
 type apacheVhost struct {
 	Name, Host, DocRoot, Pool string
+	Cert, Key                 string // set when the site is served over HTTPS
 }
 
 type apacheInput struct {
@@ -37,6 +38,8 @@ type apacheInput struct {
 	Modules    []apacheModule
 	Default    string // FastCGI address of the default PHP version
 	Vhosts     []apacheVhost
+	HTTPSPort  int // 0 = HTTPS off
+	LocalCert  [2]string
 	Windows    bool
 	User       string
 	Group      string
@@ -77,6 +80,9 @@ func renderApacheConf(in apacheInput) string {
 	w("DefaultRuntimeDir \"%s\"", slash(in.Tmp))
 	w("PidFile \"%s\"", slash(filepath.Join(in.Tmp, "httpd.pid")))
 	w("Listen %d", in.Port)
+	if in.HTTPSPort != 0 {
+		w("Listen %d", in.HTTPSPort)
+	}
 	w("ServerName localhost")
 	w("ServerAdmin admin@localhost")
 	w("")
@@ -108,6 +114,11 @@ func renderApacheConf(in apacheInput) string {
 	w("DirectoryIndex index.php index.html index.htm")
 	w("ProxyTimeout 300")
 	w("ProxyFCGIBackendType GENERIC")
+	if in.HTTPSPort != 0 {
+		w("SSLProtocol -all +TLSv1.2 +TLSv1.3")
+		w("SSLSessionCache \"shmcb:%s(512000)\"", slash(filepath.Join(in.Tmp, "ssl_scache")))
+		w("SSLSessionCacheTimeout 300")
+	}
 	w("")
 	w("<Directory />")
 	w("    AllowOverride None")
@@ -117,24 +128,32 @@ func renderApacheConf(in apacheInput) string {
 	w("    Require all denied")
 	w("</FilesMatch>")
 	w("")
+	vhost := func(port int, name, alias, docroot, pool, cert, key string) {
+		w("<VirtualHost *:%d>", port)
+		w("    ServerName %s", name)
+		w("    ServerAlias %s", alias)
+		w("    DocumentRoot \"%s\"", slash(docroot))
+		if cert != "" {
+			w("    SSLEngine on")
+			w("    SSLCertificateFile \"%s\"", slash(cert))
+			w("    SSLCertificateKeyFile \"%s\"", slash(key))
+		}
+		dirBlock(&b, docroot, "    ")
+		phpHandler(&b, pool, "    ")
+		w("</VirtualHost>")
+	}
 	w("# Default host: http://localhost/ lists the projects in www")
-	w("<VirtualHost *:%d>", in.Port)
-	w("    ServerName localhost")
-	w("    ServerAlias 127.0.0.1")
-	w("    DocumentRoot \"%s\"", slash(in.WWW))
-	dirBlock(&b, in.WWW, "    ")
-	phpHandler(&b, in.Default, "    ")
-	w("</VirtualHost>")
+	vhost(in.Port, "localhost", "127.0.0.1", in.WWW, in.Default, "", "")
+	if in.HTTPSPort != 0 && in.LocalCert[0] != "" {
+		vhost(in.HTTPSPort, "localhost", "127.0.0.1", in.WWW, in.Default, in.LocalCert[0], in.LocalCert[1])
+	}
 	for _, v := range in.Vhosts {
 		w("")
 		w("# %s", v.Name)
-		w("<VirtualHost *:%d>", in.Port)
-		w("    ServerName %s", v.Host)
-		w("    ServerAlias *.%s", v.Host)
-		w("    DocumentRoot \"%s\"", slash(v.DocRoot))
-		dirBlock(&b, v.DocRoot, "    ")
-		phpHandler(&b, v.Pool, "    ")
-		w("</VirtualHost>")
+		vhost(in.Port, v.Host, "*."+v.Host, v.DocRoot, v.Pool, "", "")
+		if in.HTTPSPort != 0 && v.Cert != "" {
+			vhost(in.HTTPSPort, v.Host, "*."+v.Host, v.DocRoot, v.Pool, v.Cert, v.Key)
+		}
 	}
 	w("")
 	w("IncludeOptional \"%s/*.conf\"", slash(in.CustomDir))
@@ -195,7 +214,7 @@ func (a *App) apacheStaticModules(bin string) map[string]bool {
 	return m
 }
 
-func (a *App) apacheModuleList(cfg *Config) []apacheModule {
+func (a *App) apacheModuleList(cfg *Config, ssl bool) []apacheModule {
 	bin := a.apacheBin(cfg)
 	dir := a.apacheModulesDir(cfg)
 	static := a.apacheStaticModules(bin)
@@ -218,6 +237,10 @@ func (a *App) apacheModuleList(cfg *Config) []apacheModule {
 	}
 	for _, m := range apacheModules {
 		add(m)
+	}
+	if ssl {
+		add("socache_shmcb")
+		add("ssl")
 	}
 	return mods
 }
@@ -265,7 +288,7 @@ func apacheRunAs() (string, string) {
 
 func (a *App) apacheConfPath() string { return a.path("etc", "apache", "httpd.conf") }
 
-func (a *App) buildApacheConf(cfg *Config, sites []Site) string {
+func (a *App) buildApacheConf(cfg *Config, sites []Site, certs map[string][2]string) string {
 	usr, grp := apacheRunAs()
 	in := apacheInput{
 		ServerRoot: a.apacheServerRoot(cfg),
@@ -276,13 +299,17 @@ func (a *App) buildApacheConf(cfg *Config, sites []Site) string {
 		MimeTypes:  a.apacheMimeTypes(cfg),
 		CustomDir:  a.path("etc", "apache", "custom"),
 		Port:       cfg.HTTPPort,
-		Modules:    a.apacheModuleList(cfg),
+		Modules:    a.apacheModuleList(cfg, certs != nil),
 		Windows:    runtime.GOOS == "windows",
 		User:       usr,
 		Group:      grp,
 	}
 	if cfg.DefaultPHP != "" {
 		in.Default = phpAddress(cfg.DefaultPHP)
+	}
+	if certs != nil {
+		in.HTTPSPort = cfg.HTTPSPort
+		in.LocalCert = certs["localhost"]
 	}
 	for _, s := range sites {
 		if !s.Enabled || s.Missing {
@@ -292,7 +319,8 @@ func (a *App) buildApacheConf(cfg *Config, sites []Site) string {
 		if s.PHP != "" {
 			pool = phpAddress(s.PHP)
 		}
-		in.Vhosts = append(in.Vhosts, apacheVhost{Name: s.Name, Host: s.Host, DocRoot: s.DocRoot, Pool: pool})
+		c := certs[s.Host]
+		in.Vhosts = append(in.Vhosts, apacheVhost{Name: s.Name, Host: s.Host, DocRoot: s.DocRoot, Pool: pool, Cert: c[0], Key: c[1]})
 	}
 	return renderApacheConf(in)
 }

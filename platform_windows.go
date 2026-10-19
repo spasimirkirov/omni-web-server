@@ -261,3 +261,22 @@ func runPowerShell(script string, elevate bool) error {
 	}
 	return nil
 }
+
+// trustCA adds the CA to the current user's Trusted Root store. Windows shows
+// its own confirmation dialog; no administrator rights are needed.
+func trustCA(path string) error {
+	out, err := exec.Command("certutil", "-user", "-addstore", "Root", path).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("certutil: %v %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func caInstalled(thumb, path string) bool {
+	if thumb == "" {
+		return false
+	}
+	ps := fmt.Sprintf(`if ((Test-Path 'Cert:\CurrentUser\Root\%[1]s') -or (Test-Path 'Cert:\LocalMachine\Root\%[1]s')) { 'yes' }`, thumb)
+	out, _ := hiddenCommand("powershell", "-NoProfile", "-NonInteractive", "-Command", ps).Output()
+	return strings.TrimSpace(string(out)) == "yes"
+}

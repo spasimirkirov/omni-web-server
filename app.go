@@ -32,6 +32,7 @@ type App struct {
 	versions      map[string]string
 
 	dnsErr  string
+	sslErr  string
 	dnsSnap dnsStatus
 
 	applyMu sync.Mutex
@@ -313,6 +314,25 @@ func (a *App) Apply(forceHosts bool) error {
 	}
 	warnings = append(warnings, missingRuntimes()...)
 
+	// HTTPS certificates (also refreshes the CA bundle the php.ini points to)
+	var certs map[string][2]string
+	sslErr := ""
+	if cfg.SSL {
+		if !a.apacheHasSSL(cfg) {
+			sslErr = "Apache has no mod_ssl, so HTTPS is unavailable"
+		} else if c, err := a.prepareSSL(cfg, sites); err != nil {
+			sslErr = err.Error()
+		} else {
+			certs = c
+		}
+		if sslErr != "" {
+			warnings = append(warnings, "HTTPS: "+sslErr)
+		}
+	}
+	a.mu.Lock()
+	a.sslErr = sslErr
+	a.mu.Unlock()
+
 	// PHP: php.ini per version, worker pools for versions in use.
 	required := requiredPHP(cfg, sites)
 	phpWarn := map[string][]string{}
@@ -342,7 +362,7 @@ func (a *App) Apply(forceHosts bool) error {
 
 	// Apache
 	if bin := a.apacheBin(cfg); bin != "" && exists(bin) {
-		conf := a.buildApacheConf(cfg, sites)
+		conf := a.buildApacheConf(cfg, sites, certs)
 		changed, err := writeIfChanged(a.apacheConfPath(), []byte(conf))
 		if err != nil {
 			warnings = append(warnings, err.Error())
@@ -470,6 +490,11 @@ func (a *App) StartWeb() error {
 		return errors.New("apache is not installed")
 	}
 	if err := testApacheConf(bin, a.apacheConfPath()); err != nil {
+		a.apache.setFailed(err)
+		return err
+	}
+	if cfg.SSL && !a.apache.Running() && portInUse(cfg.HTTPSPort) {
+		err := fmt.Errorf("HTTPS port %d is already in use%s", cfg.HTTPSPort, portOwner(cfg.HTTPSPort))
 		a.apache.setFailed(err)
 		return err
 	}

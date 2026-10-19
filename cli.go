@@ -49,6 +49,7 @@ Usage: devstack [command]
   db create|drop <name>          create or drop a database
   hosts                          rewrite the hosts file (and DNS rule) now
   dns [on|off]                   wildcard DNS: every *.local name resolves to this PC
+  ssl [on|off|trust]             HTTPS for every site with a locally trusted certificate
   logs <name> [lines]            print a log (apache_error, mysql_error, php83_error, ...)
 `
 
@@ -240,6 +241,43 @@ func (c *client) run(cmd string, args []string) error {
 		return c.db(args)
 	case "hosts":
 		return c.call("POST", "/api/hosts/sync", nil, nil)
+	case "ssl":
+		if len(args) > 0 {
+			switch args[0] {
+			case "on", "off":
+				if err := c.call("POST", "/api/settings", map[string]bool{"ssl": args[0] == "on"}, nil); err != nil {
+					return err
+				}
+			case "trust":
+				if err := c.call("POST", "/api/ssl/trust", nil, nil); err != nil {
+					return err
+				}
+				fmt.Println("The DevStack CA is now trusted.")
+			default:
+				return errors.New("usage: devstack ssl [on|off|trust]")
+			}
+		}
+		st, err := c.state()
+		if err != nil {
+			return err
+		}
+		s := st.SSL
+		switch {
+		case !s.Enabled:
+			fmt.Println("HTTPS: off")
+		case s.Error != "":
+			fmt.Println("HTTPS: error:", s.Error)
+		default:
+			fmt.Printf("HTTPS: on (port %d) - every enabled site is at https://<name>.%s\n", st.Settings.HTTPSPort, st.Settings.TLD)
+		}
+		if s.CA {
+			trust := "NOT trusted yet: run `devstack ssl trust`"
+			if s.Trusted {
+				trust = "trusted"
+			}
+			fmt.Printf("Local CA: %s (expires %s), %s\n", s.CAPath, s.Expires, trust)
+		}
+		return nil
 	case "dns":
 		if len(args) > 0 {
 			on := args[0] == "on"

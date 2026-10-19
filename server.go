@@ -69,6 +69,7 @@ type StateView struct {
 	ShimsDir  string        `json:"shims_dir"`
 	HostsFile string        `json:"hosts_file"`
 	DNS       dnsStatus     `json:"dns"`
+	SSL       sslStatus     `json:"ssl"`
 }
 
 type SettingsView struct {
@@ -81,6 +82,8 @@ type SettingsView struct {
 	ManageHosts   bool   `json:"manage_hosts"`
 	WildcardDNS   bool   `json:"wildcard_dns"`
 	DNSPort       int    `json:"dns_port"`
+	SSL           bool   `json:"ssl"`
+	HTTPSPort     int    `json:"https_port"`
 	Autostart     bool   `json:"autostart"`
 	OpenBrowser   bool   `json:"open_browser"`
 	DefaultPHP    string `json:"default_php"`
@@ -124,7 +127,7 @@ func (a *App) State() StateView {
 		Settings: SettingsView{
 			DashboardPort: cfg.DashboardPort, HTTPPort: cfg.HTTPPort, MySQLPort: cfg.MySQL.Port,
 			TLD: cfg.TLD, WWWDir: a.abs(cfg.WWWDir), AutoVhost: cfg.AutoVhost, ManageHosts: cfg.ManageHosts,
-			WildcardDNS: cfg.WildcardDNS, DNSPort: cfg.DNSPort,
+			WildcardDNS: cfg.WildcardDNS, DNSPort: cfg.DNSPort, SSL: cfg.SSL, HTTPSPort: cfg.HTTPSPort,
 			Autostart: cfg.Autostart, OpenBrowser: cfg.OpenBrowser, DefaultPHP: cfg.DefaultPHP,
 			MySQLFlavor: cfg.MySQL.Flavor, HasRootPass: cfg.MySQL.RootPassword != "",
 		},
@@ -135,6 +138,7 @@ func (a *App) State() StateView {
 		ShimsDir:  a.path("bin", "shims"),
 		HostsFile: a.hostsFile(cfg),
 		DNS:       dns,
+		SSL:       a.sslStatus(cfg),
 	}
 	apacheBin := a.apacheBin(cfg)
 	st.Services = append(st.Services, ServiceView{
@@ -458,6 +462,16 @@ func (a *App) routes() http.Handler {
 		}
 		return map[string]string{"text": lastLines(a.path("logs", name+".log"), n)}, nil
 	}))
+	mux.HandleFunc("POST /api/ssl/trust", handle(func(r *http.Request) (any, error) { return nil, a.TrustCA() }))
+	mux.HandleFunc("GET /api/ssl/ca.crt", func(w http.ResponseWriter, r *http.Request) {
+		if _, _, err := a.loadCA(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-x509-ca-cert")
+		w.Header().Set("Content-Disposition", `attachment; filename="devstack-ca.crt"`)
+		http.ServeFile(w, r, a.caCertPath())
+	})
 	mux.HandleFunc("POST /api/path/add", handle(func(r *http.Request) (any, error) {
 		return nil, addToUserPath(a.path("bin", "shims"))
 	}))
@@ -737,6 +751,8 @@ func (a *App) updateSettings(body map[string]json.RawMessage) error {
 				err = json.Unmarshal(raw, &c.ManageHosts)
 			case "wildcard_dns":
 				err = json.Unmarshal(raw, &c.WildcardDNS)
+			case "ssl":
+				err = json.Unmarshal(raw, &c.SSL)
 			case "autostart":
 				err = json.Unmarshal(raw, &c.Autostart)
 			case "open_browser":
@@ -761,7 +777,7 @@ func (a *App) updateSettings(body map[string]json.RawMessage) error {
 					}
 					c.WWWDir = a.rel(a.abs(d))
 				}
-			case "http_port", "mysql_port", "dashboard_port", "dns_port":
+			case "http_port", "mysql_port", "dashboard_port", "dns_port", "https_port":
 				var p int
 				if err = json.Unmarshal(raw, &p); err == nil {
 					if p < 1 || p > 65535 {
@@ -784,6 +800,8 @@ func (a *App) updateSettings(body map[string]json.RawMessage) error {
 						c.DashboardPort = p
 					case "dns_port":
 						c.DNSPort = p
+					case "https_port":
+						c.HTTPSPort = p
 					}
 				}
 			default:

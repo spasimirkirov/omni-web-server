@@ -40,6 +40,13 @@ Everything lives in one folder and is driven by a single `devstack.exe`.
   `.local` lookups to `127.0.0.1`; all other DNS is unchanged. While that
   rule is active, the hosts file no longer needs editing, so no more UAC
   prompts when you add projects.
+- **Easy HTTPS.** One switch serves every site at `https://name.local`.
+  DevStack creates a local certificate authority once and issues a
+  certificate per site covering `name.local` and `*.name.local`, renewing it
+  automatically. Clicking "Trust certificate" adds the CA to your Windows user
+  certificate store: one confirmation dialog, no admin rights, no OpenSSL
+  or mkcert. PHP's curl/openssl trust it too, so your app can call its own
+  `https://` endpoints.
 - **Easy custom vhosts.** "Add vhost…" serves any folder outside `www` under a
   name you choose.
 - **CLI shims.** `bin\shims\php.cmd`, `php83.cmd`, … run the CLI with the same
@@ -119,6 +126,22 @@ Notes:
   resolver. Point dnsmasq (`server=/local/127.0.0.1`) or systemd-resolved at
   it yourself.
 
+### HTTPS
+
+Turn it on under **Settings → HTTPS** (or `devstack ssl on`), then click
+**Trust certificate** (`devstack ssl trust`) and confirm the Windows dialog.
+Every enabled site now also answers on `https://` with a valid certificate,
+including one level of subdomains (`https://api.blog.local`). Plain `http://`
+keeps working.
+
+- Laravel: set `APP_URL=https://blog.local`. PHP receives `HTTPS=on`, so
+  `url()` and `asset()` generate `https://` links.
+- Phones and other devices: **Download CA** and install it there.
+- The CA's private key is `etc\ssl\devstack-ca.key`. Anyone holding it can
+  create certificates your PC trusts, so never share or commit it. To rotate
+  it, delete `etc\ssl\devstack-ca.*`, then trust the new CA. Remove the old
+  one from `certmgr.msc` → Trusted Root Certification Authorities.
+
 ## Command line
 
 Run `devstack help` for the full list. Most commands talk to the running
@@ -140,6 +163,7 @@ devstack ini 8.4 memory_limit=1G    set php.ini values
 devstack install mariadb            download MariaDB (also: apache, mysql, adminer)
 devstack db create blog             create a utf8mb4 database
 devstack dns on                     wildcard DNS: *.local (any depth) -> this PC
+devstack ssl on | ssl trust         HTTPS for all sites | trust the local CA
 devstack logs apache_error 100      show a log
 ```
 
@@ -155,6 +179,7 @@ DevStack\
   bin\mysql\…         MySQL or MariaDB
   bin\shims\          php.cmd, php84.cmd, … for the terminal
   etc\apache\httpd.conf     generated; put your own directives in etc\apache\custom\*.conf
+  etc\ssl\             local CA, per-site certificates, CA bundle for PHP
   etc\php\8.4\php.ini       generated per version from php.ini-development + your settings
   etc\mysql\my.ini          generated; put overrides in etc\mysql\custom.ini
   data\mysql\         database files

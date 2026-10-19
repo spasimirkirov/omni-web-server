@@ -25,9 +25,12 @@ type Config struct {
 	AutoVhost   bool `json:"auto_vhost"`
 	ManageHosts bool `json:"manage_hosts"`
 	// WildcardDNS answers *.TLD with 127.0.0.1 from a built-in DNS server.
-	WildcardDNS bool   `json:"wildcard_dns"`
-	DNSPort     int    `json:"dns_port"`
-	HostsFile   string `json:"hosts_file,omitempty"`
+	WildcardDNS bool `json:"wildcard_dns"`
+	DNSPort     int  `json:"dns_port"`
+	// SSL serves every enabled site over HTTPS with a locally trusted certificate.
+	SSL       bool   `json:"ssl"`
+	HTTPSPort int    `json:"https_port"`
+	HostsFile string `json:"hosts_file,omitempty"`
 	// Autostart starts Apache/PHP/MySQL when the dashboard starts.
 	Autostart   bool   `json:"autostart"`
 	OpenBrowser bool   `json:"open_browser"`
@@ -94,6 +97,7 @@ func defaultConfig() *Config {
 		Sites:         map[string]*SiteConfig{},
 		MySQL:         MySQLConfig{Port: 3306},
 		DNSPort:       53,
+		HTTPSPort:     443,
 	}
 }
 
@@ -145,6 +149,9 @@ func (c *Config) normalize() {
 	}
 	if c.HTTPPort == 0 {
 		c.HTTPPort = 80
+	}
+	if c.HTTPSPort == 0 {
+		c.HTTPSPort = 443
 	}
 	if c.DNSPort == 0 {
 		c.DNSPort = 53
