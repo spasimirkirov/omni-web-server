@@ -408,11 +408,11 @@ async function renderTools(reload) {
   const cats = {};
   for (const t of toolsCache) (cats[t.category] = cats[t.category] || []).push(t);
   el.innerHTML = `
-    ${importCache.length ? `<h2>Switch from Laragon / XAMPP</h2>
+    ${importCache.length ? `<h2>Import from Laragon / XAMPP</h2>
     <div class="grid">${importCache.map((s, i) => `
       <div class="panel svc">
         <div class="top"><span class="dot"></span><span class="name">${esc(s.name)}</span><span class="state mono small" title="${esc(s.root)}">${esc(s.root)}</span></div>
-        <div class="meta">${s.projects.length} project(s), ${s.databases.length} database(s)${s.php ? ", PHP " + esc(s.php) : ""}. Omni Web Server can copy everything over and take its place on ports 80 and 3306.</div>
+        <div class="meta">${s.projects.length} project(s), ${s.databases.length} database(s)${s.php ? ", PHP " + esc(s.php) : ""}. Omni Web Server can import its projects and databases.</div>
         <div class="actions"><button class="btn primary" data-import="${i}">Import…</button></div>
       </div>`).join("")}</div>` : ""}
     <h2>Bundled with Omni Web Server</h2>

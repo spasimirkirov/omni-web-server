@@ -6,8 +6,15 @@
 
 <p align="center">
   A local PHP development server for Windows: Apache, several PHP versions side by side, and MySQL or MariaDB.<br>
-  An alternative to Laragon and XAMPP, with a web dashboard, automatic <code>*.local</code> sites and one-click HTTPS.
+  It has a web dashboard, automatic <code>*.local</code> sites and one-click HTTPS.
 </p>
+
+> [!NOTE]
+> **Built with Claude Code.** Omni Web Server is an experiment in how well
+> [Claude Code](https://claude.com/claude-code), Anthropic's AI coding agent,
+> can design and build a real developer tool from scratch. Claude Code wrote
+> the code, the installer and these docs. [@spasimirkirov](https://github.com/spasimirkirov)
+> set the direction, tested it on a real machine and reported what broke.
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-in%20development-orange" alt="Status: in development">
@@ -20,12 +27,12 @@
 **Contents:**
 [Features](#features) ·
 [Install](#install) ·
-[Switching from Laragon or XAMPP](#switching-from-laragon-or-xampp) ·
 [Guides](#guides) ·
 [Command line](#command-line) ·
 [Folder layout](#folder-layout) ·
 [How it works](#how-it-works) ·
 [Troubleshooting](#troubleshooting) ·
+[Importing existing projects](#importing-existing-projects) ·
 [Building from source](#building-from-source)
 
 You control everything from a dashboard at <http://localhost:8800> or with the
@@ -46,7 +53,6 @@ it up.
 | **Wildcard DNS and HTTPS** | Subdomains such as `api.blog.local` work. One click gives you `https://` with a locally trusted CA. |
 | **Share a site** | One click gives a public `https://….trycloudflare.com` URL for webhooks or showing a client. |
 | **Developer apps** | Git, VS Code, PhpStorm, HeidiSQL, DBeaver, Windows Terminal, Docker Desktop and others install through winget. |
-| **Move from Laragon or XAMPP** | Projects, databases and the root password are imported automatically. See [below](#switching-from-laragon-or-xampp). |
 | **Tidy** | It manages the hosts file for you and restarts services that crash. Nothing keeps running after you quit. Uninstalling undoes every system change. |
 
 ## Install
@@ -81,45 +87,6 @@ There is also a **portable zip**: unzip it anywhere and run `omni.exe`.
 When you uninstall, it stops everything and removes the hosts entries, the DNS
 rule, the PATH entry and the registry key. It then asks whether to also delete
 databases, downloaded components and settings. Your projects are always kept.
-
-## Switching from Laragon or XAMPP
-
-Omni Web Server can take over from an existing Laragon or XAMPP install. You
-can start the import in three places:
-
-- **The installer.** If it finds Laragon or XAMPP, the components page offers
-  *Import from Laragon/XAMPP*.
-- **The dashboard.** Go to **Tools → Switch from Laragon / XAMPP**.
-- **The command line.** Run `omni migrate laragon` or `omni migrate xampp`.
-
-Every step is listed before anything happens:
-
-1. Install whatever is missing:
-   - Apache;
-   - the PHP version the old stack uses, made the default;
-   - MySQL, or MariaDB if the old stack runs MariaDB.
-2. Stop the old stack: its control panel, Apache and MySQL. MySQL is shut down
-   cleanly. Windows services that run from its folder are stopped and set to
-   manual start. Other tools in its folder, such as Node.js and Git, keep
-   running.
-3. Copy its projects into your projects folder. Projects that already exist
-   are skipped.
-4. Move the databases:
-   1. Start the old MySQL briefly on a spare port.
-   2. Dump every database with the old stack's own `mysqldump`.
-   3. Import the dumps into Omni Web Server's MySQL.
-
-   The root password is taken over from Laragon's `laragon.ini` or XAMPP's
-   phpMyAdmin config, so your `.env` files keep working.
-5. Clean up after the old stack: remove Laragon's `#laragon magic!` lines from
-   the hosts file, its PHP, MySQL, Composer and Apache entries from the user
-   PATH, and its startup shortcut.
-6. Start Apache and MySQL on ports 80 and 3306.
-
-Nothing of the old stack is deleted. Once you have checked your sites, you can
-uninstall it. The import writes details to `logs\import.log`. Symbolic links
-inside projects may need to be created again, for example Laravel's
-`public/storage` with `php artisan storage:link`.
 
 ## Guides
 
@@ -287,6 +254,26 @@ variable points to the install folder.
 | **Apache, PHP or MySQL exits immediately** | Install the [Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe), then check the log that the dashboard shows. |
 | **`name.local` doesn't resolve** | Click **Settings → Rewrite hosts file now**, or **Apply DNS rule** when wildcard DNS is on. Accept the UAC prompt, or run Omni Web Server as administrator. Then check that the hosts file has the Omni Web Server block, or that `Get-DnsClientNrptRule` lists the `OmniWebServer` rule. |
 | **Windows SmartScreen warns about `omni.exe`** | The build isn't code-signed. Choose **More info → Run anyway**. |
+
+## Importing existing projects
+
+If you already have projects in a local XAMPP or Laragon install, Omni Web
+Server can import them. Run `omni migrate xampp` or `omni migrate laragon`, or
+use **Tools → Import from Laragon / XAMPP**. The installer also offers this
+when it finds one of them.
+
+The import lists every step and asks before it starts. It does the following:
+- installs the PHP version the existing install uses;
+- copies the projects into your projects folder;
+- dumps the databases with that install's own `mysqldump` and imports them;
+- keeps the MySQL root password;
+- stops the old servers so that ports 80 and 3306 are free.
+
+Nothing is deleted. Details go to `logs\import.log`. You may need to recreate
+symbolic links inside projects, for example with `php artisan storage:link`.
+
+XAMPP and Laragon are the work of their own authors. Omni Web Server is not
+affiliated with them and only reads their files to import your projects.
 
 ## Building from source
 
