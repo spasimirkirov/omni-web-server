@@ -948,6 +948,7 @@ func (a *App) Serve(openBrowser bool) error {
 		a.log.Printf("apply: %v", err)
 	}
 	go a.watch()
+	a.startTray()
 	go func() {
 		a.runPendingInstalls()
 		if a.config().Autostart {
@@ -976,6 +977,7 @@ func (a *App) Shutdown() {
 		a.log.Printf("shutting down")
 		_ = a.StopAll()
 		a.stopDNS()
+		closeTray()
 		close(a.quit)
 	})
 }

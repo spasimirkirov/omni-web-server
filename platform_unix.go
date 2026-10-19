@@ -150,3 +150,7 @@ func isDirPath(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && st.IsDir()
 }
+
+// The tray icon is Windows-only.
+func (a *App) startTray() {}
+func closeTray()          {}

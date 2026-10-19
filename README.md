@@ -54,6 +54,7 @@ it up.
 | **Wildcard DNS and HTTPS** | Subdomains such as `api.blog.local` work. One click gives you `https://` with a locally trusted CA. |
 | **Share a site** | One click gives a public `https://….trycloudflare.com` URL for webhooks or showing a client. |
 | **Developer apps** | Git, VS Code, PhpStorm, HeidiSQL, DBeaver, Windows Terminal, Docker Desktop and others install through winget. |
+| **Tray icon** | Right-click the icon next to the clock to open the dashboard, start, stop or restart services, open the projects or logs folder, or quit. Double-click opens the dashboard. |
 | **Tidy** | It manages the hosts file for you and restarts services that crash. Nothing keeps running after you quit. Uninstalling undoes every system change. |
 
 ## Install
