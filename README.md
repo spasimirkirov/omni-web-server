@@ -267,8 +267,8 @@ variable points to the install folder.
 ## Importing existing projects
 
 If you already have projects in a local XAMPP or Laragon install, Omni Web
-Server can import them: use **Tools → Import from Laragon / XAMPP** in the
-dashboard. The installer also offers this when it finds one of them.
+Server can import them from the **Import** tab of the dashboard. The tab
+appears only when one of them is found. The installer also offers the import.
 
 The import lists every step and asks before it starts. It does the following:
 - installs the PHP version the existing install uses;

@@ -131,6 +131,7 @@ dialog ol.steps li { margin-bottom: 6px; }
       <button data-tab="overview" class="active">Overview</button>
       <button data-tab="php">PHP</button>
       <button data-tab="tools">Tools</button>
+      <button data-tab="import" id="nav-import" hidden>Import</button>
       <button data-tab="logs">Logs</button>
       <button data-tab="settings">Settings</button>
     </nav>
@@ -144,6 +145,7 @@ dialog ol.steps li { margin-bottom: 6px; }
   <section id="tab-overview"></section>
   <section id="tab-php" hidden></section>
   <section id="tab-tools" hidden></section>
+  <section id="tab-import" hidden></section>
   <section id="tab-logs" hidden></section>
   <section id="tab-settings" hidden></section>
 </main>
@@ -379,22 +381,39 @@ function iniRow(k, v) {
   return `<input type="text" placeholder="key (e.g. memory_limit)" value="${esc(k)}" class="ini-k"><input type="text" placeholder="value" value="${esc(v)}" class="ini-v"><button class="btn small" data-ini-del title="Remove">×</button>`;
 }
 
-let toolsCache = null, importCache = null;
+let toolsCache = null, importCache = [];
+
+// loadImports looks for Laragon/XAMPP installs; the Import tab is shown only
+// when there is something to import.
+async function loadImports(fresh) {
+  try { importCache = S.platform === "windows" ? await api("GET", "/api/migrate" + (fresh ? "?fresh=1" : "")) : []; } catch (e) { importCache = []; }
+  $("#nav-import").hidden = !importCache.length;
+  if (!importCache.length && tab === "import") showTab("overview");
+}
+
+async function renderImport(fresh) {
+  if (fresh) await loadImports(true);
+  const list = (title, items) => `<div class="small" style="margin-top:6px"><strong>${esc(title)} (${items.length}):</strong> ${items.length ? items.map(esc).join(", ") : '<span class="muted">none</span>'}</div>`;
+  $("#tab-import").innerHTML = `
+    <h2>Import existing projects<span class="spacer"></span><button class="btn small" data-act="import-rescan">Look again</button></h2>
+    <p class="muted small">Omni Web Server found these local servers on this PC. Importing copies their projects and databases; the old install is not deleted. Every step is shown before anything happens.</p>
+    <div class="grid">${importCache.map((s, i) => `
+      <div class="panel svc">
+        <div class="top"><span class="dot"></span><span class="name">${esc(s.name)}</span><span class="state mono small" title="${esc(s.root)}">${esc(s.root)}</span></div>
+        <div class="meta">${s.php ? "PHP " + esc(s.php) : "PHP version unknown"}${s.flavor ? " · " + esc(s.flavor === "mariadb" ? "MariaDB" : "MySQL") : ""}</div>
+        ${list("Projects", s.projects)}
+        ${list("Databases", s.databases)}
+        <div class="actions"><button class="btn primary" data-import="${i}">Import…</button></div>
+      </div>`).join("")}</div>`;
+}
+
 async function renderTools(reload) {
   const el = $("#tab-tools");
   const T = S.tools, win = S.platform === "windows";
   if (reload || !toolsCache) { try { toolsCache = await api("GET", "/api/tools"); } catch (e) { toolsCache = []; } }
-  if (reload || !importCache) { try { importCache = win ? await api("GET", "/api/migrate") : []; } catch (e) { importCache = []; } }
   const cats = {};
   for (const t of toolsCache) (cats[t.category] = cats[t.category] || []).push(t);
   el.innerHTML = `
-    ${importCache.length ? `<h2>Import from Laragon / XAMPP</h2>
-    <div class="grid">${importCache.map((s, i) => `
-      <div class="panel svc">
-        <div class="top"><span class="dot"></span><span class="name">${esc(s.name)}</span><span class="state mono small" title="${esc(s.root)}">${esc(s.root)}</span></div>
-        <div class="meta">${s.projects.length} project(s), ${s.databases.length} database(s)${s.php ? ", PHP " + esc(s.php) : ""}. Omni Web Server can import its projects and databases.</div>
-        <div class="actions"><button class="btn primary" data-import="${i}">Import…</button></div>
-      </div>`).join("")}</div>` : ""}
     <h2>Bundled with Omni Web Server</h2>
     <div class="grid">
       <div class="panel svc">
@@ -575,6 +594,7 @@ function showTab(name) {
   if (name === "overview") renderOverview();
   if (name === "php") renderPHP(true);
   if (name === "tools") renderTools(true);
+  if (name === "import") renderImport(false);
   if (name === "logs") renderLogs();
   if (name === "settings") renderSettings();
   try { localStorage.setItem("omni-tab", name); } catch (e) {}
@@ -713,6 +733,7 @@ document.addEventListener("click", async e => {
         return;
       }
       case "log-refresh": return loadLog();
+      case "import-rescan": return renderImport(true);
       case "update-later": {
         try { localStorage.setItem("omni-update-later", S.update.version); } catch (e) {}
         return renderNotices();
@@ -759,9 +780,11 @@ document.addEventListener("input", e => {
 
 (async () => {
   await refresh(true);
+  await loadImports(false);
   let saved = "overview";
   try { saved = localStorage.getItem("omni-tab") || "overview"; } catch (e) {}
-  showTab(["overview", "php", "tools", "logs", "settings"].includes(saved) ? saved : "overview");
+  const tabs = ["overview", "php", "tools", "logs", "settings"].concat(importCache.length ? ["import"] : []);
+  showTab(tabs.includes(saved) ? saved : "overview");
   setInterval(() => refresh(false), 2000);
 })();
 </script>
