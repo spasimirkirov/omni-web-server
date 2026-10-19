@@ -51,7 +51,7 @@ type Config struct {
 	Node    NodeConfig    `json:"node"`
 }
 
-// MailpitConfig: local SMTP server that catches all outgoing mail, with a web inbox.
+// MailpitConfig is the local SMTP server that catches all outgoing mail, with a web inbox.
 type MailpitConfig struct {
 	Dir      string `json:"dir,omitempty"`
 	Bin      string `json:"bin,omitempty"`

@@ -543,11 +543,6 @@ func (a *App) StopWeb() error {
 	return err
 }
 
-func (a *App) RestartWeb() error {
-	_ = a.StopWeb()
-	return a.StartWeb()
-}
-
 func (a *App) StartMySQL() error {
 	cfg := a.config()
 	if b := a.mysqlBin(cfg); b == "" || !exists(b) {

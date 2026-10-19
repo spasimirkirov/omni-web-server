@@ -304,7 +304,7 @@ func TestWildcardDNS(t *testing.T) {
 func TestDNSMalformed(t *testing.T) {
 	s := &dnsServer{tld: "local"}
 	for _, q := range [][]byte{nil, {1, 2, 3}, append([]byte{0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0}, 0x40)} {
-		if resp := s.answer(q); resp != nil && len(resp) >= 4 && resp[3]&0x0f == 0 {
+		if resp := s.answer(q); len(resp) >= 4 && resp[3]&0x0f == 0 {
 			t.Fatalf("malformed query %v answered without error", q)
 		}
 	}

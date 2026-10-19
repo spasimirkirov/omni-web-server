@@ -67,7 +67,6 @@ var (
 	procGetCurrentProcess  = kernel32.NewProc("GetCurrentProcess")
 	procGetConsoleWindow   = kernel32.NewProc("GetConsoleWindow")
 	procMessageBox         = syscall.NewLazyDLL("user32.dll").NewProc("MessageBoxW")
-	jobHandle              uintptr
 )
 
 // hasConsole is false for omniw.exe (built with -H windowsgui), which the
@@ -97,10 +96,10 @@ func initProcessGroup() {
 	if r == 0 {
 		return
 	}
+	// The handle is never closed on purpose: the job ends (and kills the
+	// children) only when this process exits.
 	self, _, _ := procGetCurrentProcess.Call()
-	if r, _, _ := procAssignProcessToJob.Call(h, self); r != 0 {
-		jobHandle = h
-	}
+	_, _, _ = procAssignProcessToJob.Call(h, self)
 }
 
 func terminateTree(cmd *exec.Cmd) {
