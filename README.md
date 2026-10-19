@@ -309,8 +309,16 @@ On Windows:
    `bash build.sh` from Git Bash.
 
 `rsrc_windows_amd64.syso` embeds the icon and version information in
-`omni.exe`. To regenerate it, run
-`go run github.com/tc-hib/go-winres@v0.3.3 simply --icon logo.png --manifest cli ...`.
+`omni.exe`. To regenerate it, run:
+
+```sh
+go run github.com/tc-hib/go-winres@v0.3.3 simply --arch amd64 --icon logo.png --manifest cli \
+  --product-name "Omni Web Server" --product-version 1.1.0 --file-version 1.1.0.0 \
+  --file-description "Omni Web Server - Apache, PHP, MySQL for Windows" \
+  --copyright "Omni Web Server" --original-filename omni.exe
+```
+
+The favicons in `favicons/` and `web/` are generated from `logo.png` as well.
 `installer/omni.nsi` is the installer script, in English and Bulgarian.
 
 Omni Web Server also runs on Linux. On first run it finds the system's Apache,

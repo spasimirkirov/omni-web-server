@@ -14,7 +14,7 @@ Generated from `../logo.png`. Copy these files to the web root and add to `<head
 
 | File | Size | Use |
 |------|------|-----|
-| favicon.ico | 16–256 px (6 sizes) | browsers, Windows shortcuts / .exe icon |
+| favicon.ico | 16–256 px (7 sizes) | browsers, Windows shortcuts / .exe icon |
 | favicon-16x16.png, -32x32, -48x48 | | browser tabs |
 | apple-touch-icon.png | 180 px, white background | iOS home screen |
 | android-chrome-192x192.png, -512x512 | | Android / PWA manifest |
