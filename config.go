@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -142,6 +143,8 @@ func loadConfig(root string) (cfg *Config, fresh bool, err error) {
 	if err != nil {
 		return nil, false, err
 	}
+	// Notepad and PowerShell 5 save UTF-8 with a byte order mark.
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 	if err := json.Unmarshal(data, cfg); err != nil {
 		return nil, false, fmt.Errorf("%s: %w", configFile, err)
 	}

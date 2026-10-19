@@ -410,7 +410,7 @@ func (a *App) Apply(forceHosts bool) error {
 			}
 		}
 	} else {
-		warnings = append(warnings, "Apache is not installed yet: install it from the Services tab.")
+		warnings = append(warnings, "Apache is not installed yet: install it from the Overview tab.")
 	}
 
 	// Wildcard DNS, then the hosts file (not needed while the DNS rule is active)

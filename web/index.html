@@ -112,8 +112,23 @@ dialog form { padding: 18px; display: flex; flex-direction: column; gap: 12px; m
 dialog h3 { margin: 0; font-size: 16px; }
 dialog ol.steps { margin: 0; padding-left: 20px; max-height: 42vh; overflow: auto; font-size: 13px; }
 dialog ol.steps li { margin-bottom: 6px; }
-fieldset.pick { border: 1px solid var(--border); border-radius: 8px; margin: 0; padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; max-height: 26vh; overflow: auto; font-size: 13px; }
-fieldset.pick legend { display: flex; gap: 6px; align-items: center; font-weight: 600; padding: 0 4px; }
+.import-src { margin-bottom: 12px; padding: 0; overflow: hidden; }
+.import-head { width: 100%; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 16px; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.import-head:hover { background: var(--panel-2); }
+.import-head .name { font-weight: 600; }
+.import-head .chev { width: 12px; color: var(--muted); }
+.import-body { border-top: 1px solid var(--border); padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.pick-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.pick-col { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.pick-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--panel-2); font-size: 13px; }
+.pick-list { max-height: 320px; overflow: auto; padding: 4px 0; }
+.pick-row { display: flex; align-items: center; gap: 10px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+.pick-row:hover { background: var(--panel-2); }
+.pick-row.done { color: var(--muted); cursor: default; }
+.pick-row.done:hover { background: none; }
+.pick-row .badge { margin-left: auto; }
+button.link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; }
+button.link:hover { text-decoration: underline; }
 dialog.wide { width: min(680px, calc(100vw - 32px)); }
 #task-body { padding: 18px; display: flex; flex-direction: column; gap: 12px; max-height: 88vh; overflow: auto; }
 ul.tsteps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
@@ -409,24 +424,92 @@ async function loadImports(fresh) {
   if (!importCache.length && tab === "import") showTab("overview");
 }
 
+// The Import tab: one expandable section per Laragon/XAMPP install, with the
+// projects and databases to pick right in the page.
+const importOpen = {};
+let importTask = null;
+
+const sameName = (list, n) => (list || []).some(d => d.toLowerCase() === n.toLowerCase());
+
+function importPicker(i, title, kind, items, done) {
+  const rows = items.map(n => sameName(done, n)
+    ? `<label class="pick-row done"><input type="checkbox" disabled><span>${esc(n)}</span><span class="badge">imported</span></label>`
+    : `<label class="pick-row"><input type="checkbox" data-pick="${kind}" value="${esc(n)}" checked><span>${esc(n)}</span></label>`).join("");
+  return `<div class="pick-col">
+    <div class="pick-head"><strong>${esc(title)}</strong><span class="spacer"></span>
+      <button class="link" data-pick-all="${kind}" data-src="${i}">All</button><button class="link" data-pick-none="${kind}" data-src="${i}">None</button></div>
+    <div class="pick-list">${rows || '<div class="muted small">None found.</div>'}</div>
+  </div>`;
+}
+
 async function renderImport(fresh) {
   if (fresh) await loadImports(true);
-  const list = (title, items, done) => {
-    const isDone = n => (done || []).some(d => d.toLowerCase() === n.toLowerCase());
-    const left = items.filter(n => !isDone(n)).length;
-    return `<div class="small" style="margin-top:6px"><strong>${esc(title)} (${left} to import${items.length - left ? ", " + (items.length - left) + " already imported" : ""}):</strong> ${items.length ? items.map(n => isDone(n) ? `<span class="muted" title="already imported"><s>${esc(n)}</s></span>` : esc(n)).join(", ") : '<span class="muted">none</span>'}</div>`;
-  };
+  if (importCache.length === 1 && importOpen[0] === undefined) importOpen[0] = true;
   $("#tab-import").innerHTML = `
     <h2>Import existing projects<span class="spacer"></span><button class="btn small" data-act="import-rescan">Look again</button></h2>
-    <p class="muted small">Omni Web Server found these local servers on this PC. Importing copies their projects and databases; the old install is not deleted. Every step is shown before anything happens.</p>
-    <div class="grid">${importCache.map((s, i) => `
-      <div class="panel svc">
-        <div class="top"><span class="dot"></span><span class="name">${esc(s.name)}</span><span class="state mono small" title="${esc(s.root)}">${esc(s.root)}</span></div>
-        <div class="meta">${s.php ? "PHP " + esc(s.php) : "PHP version unknown"}${s.flavor ? " · " + esc(s.flavor === "mariadb" ? "MariaDB" : "MySQL") : ""}</div>
-        ${list("Projects", s.projects, s.imported_projects)}
-        ${list("Databases", s.databases, s.imported_databases)}
-        <div class="actions"><button class="btn primary" data-import="${i}">Import…</button></div>
-      </div>`).join("")}</div>`;
+    <p class="muted small">Omni Web Server found these local servers on this PC. Pick what to bring over; projects and databases that are already here are skipped, and the old install is not deleted.</p>
+    ${importCache.map((s, i) => {
+      const toProjects = s.projects.filter(n => !sameName(s.imported_projects, n)).length;
+      const toDBs = s.databases.filter(n => !sameName(s.imported_databases, n)).length;
+      const open = !!importOpen[i];
+      return `<div class="panel import-src ${open ? "open" : ""}" id="imp-${i}">
+        <button class="import-head" data-import-toggle="${i}" aria-expanded="${open}">
+          <span class="chev">${open ? "▾" : "▸"}</span>
+          <span class="name">${esc(s.name)}</span>
+          <span class="mono small muted">${esc(s.root)}</span>
+          <span class="spacer"></span>
+          <span class="small muted">${toProjects} of ${s.projects.length} projects · ${toDBs} of ${s.databases.length} databases to import${s.php ? " · PHP " + esc(s.php) : ""}</span>
+        </button>
+        ${open ? `<div class="import-body">
+          <div class="pick-grid">
+            ${importPicker(i, "Projects", "project", s.projects, s.imported_projects)}
+            ${importPicker(i, "Databases", "database", s.databases, s.imported_databases)}
+          </div>
+          <div class="form-grid" style="max-width:none">
+            <label for="imp-pw-${i}">${esc(s.name)} MySQL password</label>
+            <div><input type="password" id="imp-pw-${i}" autocomplete="off" placeholder="${s.has_password ? "detected automatically" : "none"}" style="width:260px">
+              <div class="hint">Leave empty to use the ${s.has_password ? "detected password" : "default (no password)"}.</div></div>
+          </div>
+          <details><summary class="small">What the import does</summary><ol class="steps">${s.steps.map(x => `<li>${esc(x)}</li>`).join("")}</ol></details>
+          <div class="row">
+            <span class="small muted" id="imp-count-${i}"></span><span class="spacer"></span>
+            <button class="btn primary" data-import-run="${i}" ${importTask ? "disabled" : ""}>Import selected</button>
+          </div>
+        </div>` : ""}
+      </div>`;
+    }).join("")}`;
+  Object.keys(importOpen).forEach(i => updateImportCount(+i));
+}
+
+function updateImportCount(i) {
+  const box = $("#imp-" + i), out = $("#imp-count-" + i);
+  if (!box || !out) return;
+  const n = kind => box.querySelectorAll(`input[data-pick="${kind}"]:checked`).length;
+  const p = n("project"), d = n("database");
+  out.textContent = p || d ? `${p} project(s) and ${d} database(s) will be imported.` : "Nothing selected.";
+  const btn = box.querySelector("[data-import-run]");
+  if (btn) btn.disabled = !!importTask || !(p || d);
+}
+
+async function runImport(i) {
+  const s = importCache[i], box = $("#imp-" + i);
+  const picked = kind => [...box.querySelectorAll(`input[data-pick="${kind}"]:checked`)].map(c => c.value);
+  const body = { kind: s.kind, root: s.root, projects: picked("project"), databases: picked("database") };
+  const pw = $("#imp-pw-" + i).value;
+  if (pw) body.password = pw;
+  const task = await act("POST", "/api/migrate", body, "Import from " + s.name + " started");
+  if (!task || !task.id) return;
+  importTask = task.id;
+  renderImport(false);
+  // Progress shows at the top of the page; refresh the lists when it is done.
+  const poll = setInterval(async () => {
+    let t;
+    try { t = await api("GET", "/api/tasks/" + importTask); } catch (e) { t = { status: "error" }; }
+    if (t.status === "running") return;
+    clearInterval(poll);
+    importTask = null;
+    if (tab === "import") renderImport(true); else loadImports(true);
+  }, 2000);
 }
 
 async function renderTools(reload) {
@@ -647,35 +730,6 @@ async function installDialog(component) {
   if (v) await startInstall({ component, url: v.url });
 }
 
-// importDialog lists every step before anything happens, then starts the import.
-async function importDialog(s) {
-  // Checkboxes per project and database; what is already here is shown but
-  // cannot be picked (it is skipped anyway).
-  const picker = (title, kind, items, done) => !items.length ? "" : `
-    <fieldset class="pick"><legend>${esc(title)} <button type="button" class="btn small" data-pick-all="${kind}">All</button><button type="button" class="btn small" data-pick-none="${kind}">None</button></legend>
-      ${items.map(n => {
-        const imported = done.some(d => d.toLowerCase() === n.toLowerCase());
-        return `<label class="${imported ? "muted" : ""}"><input type="checkbox" data-pick="${kind}" value="${esc(n)}" ${imported ? "disabled" : "checked"}> ${esc(n)}${imported ? " <span class='small'>(already imported)</span>" : ""}</label>`;
-      }).join("")}
-    </fieldset>`;
-  const promise = dialog(`Import from ${s.name}`, `
-    <div class="small muted">${esc(s.root)}</div>
-    <div class="small">Omni Web Server will:</div>
-    <ol class="steps">${s.steps.map(x => `<li>${esc(x)}</li>`).join("")}</ol>
-    <div class="small">Choose what to bring over. Projects and databases that already exist in Omni Web Server are skipped.</div>
-    ${picker("Projects", "project", s.projects, s.imported_projects || [])}${picker("Databases", "database", s.databases, s.imported_databases || [])}
-    <label>${esc(s.name)}'s MySQL root password<br><input type="password" class="wide" name="password" autocomplete="off" placeholder="${s.has_password ? "detected automatically" : "none"}"></label>
-    <div class="hint">Leave empty to use the ${s.has_password ? "detected password" : "default (no password)"}. Progress appears at the top of the page; details go to the <code>import</code> log.</div>`, "Import");
-  const v = await promise;
-  if (!v) return;
-  const picked = kind => [...document.querySelectorAll(`#dlg-form input[data-pick="${kind}"]:checked:not(:disabled)`)].map(c => c.value);
-  const body = { kind: s.kind, root: s.root, projects: picked("project"), databases: picked("database") };
-  if (!body.projects.length && !body.databases.length) return toast("Nothing selected to import", true);
-  if (v.password) body.password = v.password;
-  const task = await act("POST", "/api/migrate", body, "Import from " + s.name + " started");
-  if (task && task.id) loadImports(true);
-}
-
 // phpOK mirrors the server's check of a Composer PHP constraint ("^8.2",
 // ">=8.4", "^7.3|^8.0") against a PHP minor version such as "8.3".
 function phpOK(constraint, minor) {
@@ -857,10 +911,11 @@ document.addEventListener("click", async e => {
       return;
     }
     if (d.installUrl) return installDialog(d.installUrl);
-    if (d.import !== undefined) return importDialog(importCache[+d.import]);
+    if (d.importToggle !== undefined) { importOpen[d.importToggle] = !importOpen[d.importToggle]; return renderImport(false); }
+    if (d.importRun !== undefined) return runImport(+d.importRun);
     if (d.pickAll || d.pickNone) {
-      for (const c of document.querySelectorAll(`#dlg-form input[data-pick="${d.pickAll || d.pickNone}"]:not(:disabled)`)) c.checked = !!d.pickAll;
-      return;
+      for (const c of document.querySelectorAll(`#imp-${d.src} input[data-pick="${d.pickAll || d.pickNone}"]`)) c.checked = !!d.pickAll;
+      return updateImportCount(+d.src);
     }
     if (d.taskClose !== undefined) return $("#task-dlg").close();
     if (d.logOpen) { $("#task-dlg").close(); logName = d.logOpen; return showTab("logs"); }
@@ -953,6 +1008,13 @@ document.addEventListener("change", async e => {
     if (t.id === "log-name") { logName = t.value; return loadLog(); }
     if (t.id === "log-follow") { clearInterval(logTimer); logTimer = t.checked ? setInterval(loadLog, 2000) : null; }
   } catch (err) {}
+});
+
+document.addEventListener("change", e => {
+  if (e.target.dataset.pick) {
+    const box = e.target.closest(".import-src");
+    if (box) updateImportCount(+box.id.slice(4));
+  }
 });
 
 document.addEventListener("input", e => {

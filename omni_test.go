@@ -562,3 +562,12 @@ func TestSelectNames(t *testing.T) {
 		t.Fatalf("none picked = %v", got)
 	}
 }
+
+func TestConfigWithBOM(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, configFile), []byte("\xef\xbb\xbf{\"dashboard_port\": 8898}"), 0o644)
+	cfg, _, err := loadConfig(root)
+	if err != nil || cfg.DashboardPort != 8898 {
+		t.Fatalf("cfg=%v err=%v", cfg, err)
+	}
+}
