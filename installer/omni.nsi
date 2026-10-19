@@ -202,11 +202,7 @@ Function .onInit
     StrCpy $WWWDir $1
   ${EndIf}
   Call DetectOldStack
-  ; Upgrades keep "Start with Windows" if it was on.
-  ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APPKEY}"
-  ${If} $0 != ""
-    !insertmacro SelectSection ${SecAutorun}
-  ${EndIf}
+  Call KeepAutorun
 FunctionEnd
 
 Function WWWPagePre
@@ -393,6 +389,15 @@ Function DetectOldStack
   ; Preselected on a fresh install; an upgrade does not import again by itself.
   ${IfNot} ${FileExists} "$INSTDIR\omni.json"
     !insertmacro SelectSection ${SecImport}
+  ${EndIf}
+FunctionEnd
+
+; Upgrades keep "Start with Windows" if it was on. Defined after the sections
+; so that ${SecAutorun} is known.
+Function KeepAutorun
+  ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APPKEY}"
+  ${If} $0 != ""
+    !insertmacro SelectSection ${SecAutorun}
   ${EndIf}
 FunctionEnd
 
