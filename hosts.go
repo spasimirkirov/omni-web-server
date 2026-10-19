@@ -47,6 +47,43 @@ func renderHosts(existing string, hosts []string) string {
 	return strings.Join(kept, nl) + nl
 }
 
+// removeHostsLines drops every line containing marker (case-insensitive), e.g.
+// Laragon's "#laragon magic!" entries, and reports how many were removed.
+func (a *App) removeHostsLines(cfg *Config, marker string) (int, error) {
+	path := a.hostsFile(cfg)
+	old, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	nl := "\n"
+	if strings.Contains(string(old), "\r\n") {
+		nl = "\r\n"
+	}
+	var kept []string
+	n := 0
+	for _, line := range strings.Split(strings.ReplaceAll(string(old), "\r\n", "\n"), "\n") {
+		if strings.Contains(strings.ToLower(line), strings.ToLower(marker)) {
+			n++
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	next := strings.Join(kept, nl)
+	if err := os.WriteFile(path, []byte(next), 0o644); err != nil {
+		if !errors.Is(err, fs.ErrPermission) {
+			return 0, err
+		}
+		if err := elevatedWriteHosts(path, next); err != nil {
+			return 0, err
+		}
+	}
+	flushDNS()
+	return n, nil
+}
+
 func (a *App) hostsFile(cfg *Config) string {
 	if cfg.HostsFile != "" {
 		return cfg.HostsFile
@@ -72,7 +109,9 @@ func (a *App) syncHosts(cfg *Config, sites []Site, force, viaDNS bool) error {
 		return err
 	}
 	next := renderHosts(string(old), hosts)
-	if next == string(old) {
+	// Nothing to add and no block to remove: leave the file alone (renderHosts
+	// would only normalize trailing blank lines, which is not worth a UAC prompt).
+	if next == string(old) || (len(hosts) == 0 && !strings.Contains(string(old), hostsBegin)) {
 		return nil
 	}
 	if err := os.WriteFile(path, []byte(next), 0o644); err != nil {

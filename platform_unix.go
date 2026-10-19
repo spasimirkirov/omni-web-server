@@ -22,6 +22,10 @@ func hiddenCommand(name string, args ...string) *exec.Cmd {
 
 func initProcessGroup() {}
 
+func hasConsole() bool { return true }
+
+func showError(msg string) {}
+
 func terminateTree(cmd *exec.Cmd) {
 	if cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
@@ -85,6 +89,19 @@ func writeRegistry(map[string]map[string]string) error { return nil }
 func removeRegistry() error { return nil }
 
 func missingRuntimes() []string { return nil }
+
+// Importing from Laragon/XAMPP is Windows-only; detectSources finds nothing here.
+func foreignProcesses(root string) []foreignProc { return nil }
+
+func killPID(pid int) error { return syscall.Kill(pid, syscall.SIGTERM) }
+
+func stopForeignServices(root string) (int, error) { return 0, nil }
+
+func removeUserPathUnder(prefixes []string) error { return nil }
+
+func removeStartupEntries(kind, root string) error { return nil }
+
+func listeningPorts(pid int) []int { return nil }
 
 var errResolverUnsupported = errors.New("automatic resolver setup is only available on Windows")
 

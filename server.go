@@ -528,6 +528,24 @@ func (a *App) routes() http.Handler {
 		http.ServeFile(w, r, a.caCertPath())
 	})
 	mux.HandleFunc("GET /api/tools", handle(func(r *http.Request) (any, error) { return a.listTools(), nil }))
+	mux.HandleFunc("GET /api/migrate", handle(func(r *http.Request) (any, error) {
+		return detectSources(r.URL.Query().Get("fresh") != ""), nil
+	}))
+	mux.HandleFunc("POST /api/migrate", handle(func(r *http.Request) (any, error) {
+		var body struct {
+			Kind     string
+			Root     string
+			Password *string
+		}
+		if err := decode(r, &body); err != nil {
+			return nil, err
+		}
+		t, err := a.startMigration(body.Kind, body.Root, body.Password)
+		if err != nil {
+			return nil, err
+		}
+		return t.View(), nil
+	}))
 	mux.HandleFunc("POST /api/node/default", handle(func(r *http.Request) (any, error) {
 		var body struct{ Version string }
 		if err := decode(r, &body); err != nil {
@@ -826,6 +844,8 @@ func (a *App) startInstall(component, version, u string) (*Task, error) {
 	case "tool":
 		title = "Install " + version
 		fn = func(t *Task) error { return a.installTool(t, version) }
+	case "migrate": // queued by the installer: "migrate:laragon"
+		return a.startMigration(version, "", nil)
 	default:
 		return nil, badRequest("unknown component %q", component)
 	}

@@ -193,7 +193,7 @@ func (a *App) Cleanup() []string {
 	if err := a.syncHosts(cfg, nil, true, false); err != nil {
 		errs = append(errs, "hosts: "+err.Error())
 	}
-	if resolverKind() != "manual" {
+	if resolverKind() != "manual" && currentResolverRule() != "" {
 		if err := applyResolverRule("", cfg.DNSPort); err != nil {
 			errs = append(errs, "DNS rule: "+err.Error())
 		}

@@ -128,10 +128,11 @@ func TestRenderApacheConf(t *testing.T) {
 		"ServerName blog.local",
 		"ServerAlias *.blog.local",
 		`DocumentRoot "C:/Omni Web Server/www/blog/public"`,
-		`SetHandler "proxy:fcgi://127.0.0.1:9740"`,
-		`SetHandler "proxy:fcgi://127.0.0.1:9830"`,
+		`SetHandler "proxy:fcgi://127.0.0.1:9740/"`,
+		`SetHandler "proxy:fcgi://127.0.0.1:9830/"`,
 		"AllowOverride All",
 		"ProxyFCGIBackendType GENERIC",
+		`ProxyFCGISetEnvIf "reqenv('SCRIPT_FILENAME') =~ m#^/([A-Za-z]:/.*)$#" SCRIPT_FILENAME "$1"`,
 		"AcceptFilter http none",
 		`IncludeOptional "C:/Omni Web Server/etc/apache/custom/*.conf"`,
 	} {

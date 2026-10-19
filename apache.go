@@ -56,7 +56,9 @@ func phpHandler(b *strings.Builder, addr, indent string) {
 	}
 	fmt.Fprintf(b, "%s<FilesMatch \"\\.php$\">\n", indent)
 	fmt.Fprintf(b, "%s    <If \"-f %%{REQUEST_FILENAME}\">\n", indent)
-	fmt.Fprintf(b, "%s        SetHandler \"proxy:fcgi://%s\"\n", indent, addr)
+	// The trailing slash matters: mod_proxy_fcgi appends the script path, and on
+	// Windows "127.0.0.1:9850" + "C:/..." would be parsed as port "9850C:".
+	fmt.Fprintf(b, "%s        SetHandler \"proxy:fcgi://%s/\"\n", indent, addr)
 	fmt.Fprintf(b, "%s    </If>\n", indent)
 	fmt.Fprintf(b, "%s</FilesMatch>\n", indent)
 }
@@ -114,6 +116,10 @@ func renderApacheConf(in apacheInput) string {
 	w("DirectoryIndex index.php index.html index.htm")
 	w("ProxyTimeout 300")
 	w("ProxyFCGIBackendType GENERIC")
+	if in.Windows {
+		// mod_proxy_fcgi sends "/C:/..." as the script path; php-cgi needs "C:/...".
+		w(`ProxyFCGISetEnvIf "reqenv('SCRIPT_FILENAME') =~ m#^/([A-Za-z]:/.*)$#" SCRIPT_FILENAME "$1"`)
+	}
 	if in.HTTPSPort != 0 {
 		w("SSLProtocol -all +TLSv1.2 +TLSv1.3")
 		w("SSLSessionCache \"shmcb:%s(512000)\"", slash(filepath.Join(in.Tmp, "ssl_scache")))

@@ -585,7 +585,7 @@ func (a *App) installAdminer(t *Task) error {
 }
 
 // pendingOrder installs dependencies first (Composer needs PHP).
-var pendingOrder = []string{"apache", "php", "mysql", "mariadb", "composer", "node", "mailpit", "redis", "adminer"}
+var pendingOrder = []string{"apache", "php", "mysql", "mariadb", "composer", "node", "mailpit", "redis", "adminer", "tool", "migrate"}
 
 func pendingRank(item string) int {
 	for i, p := range pendingOrder {

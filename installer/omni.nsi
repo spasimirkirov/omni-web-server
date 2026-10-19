@@ -21,6 +21,7 @@ SetCompressor /SOLID lzma
 !define APPNAME   "Omni Web Server"
 !define APPKEY    "OmniWebServer"
 !define APPEXE    "omni.exe"
+!define APPEXEW   "omniw.exe" ; no console window: shortcuts, autostart
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPKEY}"
 
 Name "${APPNAME}"
@@ -42,10 +43,15 @@ VIAddVersionKey "LegalCopyright" "${APPNAME}"
 !include "FileFunc.nsh"
 !include "x64.nsh"
 !include "WinVer.nsh"
+!include "WordFunc.nsh"
+!include "Sections.nsh"
 
 Var WWWDir
 Var Pending
 Var StartMenuFolder
+Var MigrateKind
+Var MigrateRoot
+Var MigrateName
 
 !define MUI_ICON "..\favicons\favicon.ico"
 !define MUI_UNICON "..\favicons\favicon.ico"
@@ -73,6 +79,7 @@ Var StartMenuFolder
 !define MUI_PAGE_CUSTOMFUNCTION_PRE WWWPagePre
 !insertmacro MUI_PAGE_DIRECTORY
 
+!define MUI_PAGE_CUSTOMFUNCTION_LEAVE ComponentsLeave
 !insertmacro MUI_PAGE_COMPONENTS
 
 !define MUI_STARTMENUPAGE_DEFAULTFOLDER "${APPNAME}"
@@ -83,7 +90,7 @@ Var StartMenuFolder
 
 !insertmacro MUI_PAGE_INSTFILES
 
-!define MUI_FINISHPAGE_RUN "$INSTDIR\${APPEXE}"
+!define MUI_FINISHPAGE_RUN "$INSTDIR\${APPEXEW}"
 !define MUI_FINISHPAGE_RUN_TEXT "$(FinishRun)"
 !define MUI_FINISHPAGE_SHOWREADME "$INSTDIR\README.md"
 !define MUI_FINISHPAGE_SHOWREADME_NOTCHECKED
@@ -138,6 +145,12 @@ LangString DescDesktop ${LANG_BULGARIAN} "Пряк път на работния 
 LangString DescAutorun ${LANG_ENGLISH} "Start Omni Web Server in the background when you sign in."
 LangString DescAutorun ${LANG_BULGARIAN} "Стартирай Omni Web Server във фонов режим при влизане в Windows."
 
+LangString ImportFrom ${LANG_ENGLISH} "Import from"
+LangString ImportFrom ${LANG_BULGARIAN} "Импорт от"
+LangString DescImport ${LANG_ENGLISH} "Copy the projects and databases of your current local server and replace it. You will see every step before anything happens."
+LangString DescImport ${LANG_BULGARIAN} "Копира проектите и базите данни от сегашния ви локален сървър и заема мястото му. Ще видите всяка стъпка, преди да започне."
+LangString ImportSteps ${LANG_ENGLISH} "On its first start Omni Web Server will import from $MigrateName ($MigrateRoot):$\r$\n$\r$\n1. Install what is missing: Apache, the PHP version $MigrateName uses, and MySQL.$\r$\n2. Stop $MigrateName and its servers. Its Windows services are set to manual start.$\r$\n3. Copy its projects to your projects folder (projects that already exist are skipped).$\r$\n4. Export its databases with its own MySQL and import them, keeping the same root password so your .env files keep working.$\r$\n5. Remove its hosts entries, its PHP/MySQL/Composer PATH entries and its startup entry.$\r$\n6. Start Apache and MySQL on the standard ports 80 and 3306.$\r$\n$\r$\nNothing is deleted: $MigrateName stays installed with its data, and you can uninstall it afterwards.$\r$\n$\r$\nContinue?"
+LangString ImportSteps ${LANG_BULGARIAN} "При първото стартиране Omni Web Server ще импортира от $MigrateName ($MigrateRoot):$\r$\n$\r$\n1. Инсталира липсващото: Apache, същата PHP версия като в $MigrateName и MySQL.$\r$\n2. Спира $MigrateName и неговите сървъри. Windows услугите му се превключват на ръчно стартиране.$\r$\n3. Копира проектите му в папката с проекти (вече съществуващите се пропускат).$\r$\n4. Експортира базите данни със собствения му MySQL и ги импортира, като запазва същата root парола, за да работят .env файловете ви.$\r$\n5. Премахва неговите записи в hosts, PHP/MySQL/Composer пътищата му от PATH и автоматичното му стартиране.$\r$\n6. Стартира Apache и MySQL на стандартните портове 80 и 3306.$\r$\n$\r$\nНищо не се изтрива: $MigrateName остава инсталиран с данните си и можете да го деинсталирате после.$\r$\n$\r$\nПродължаване?"
 ; ---- helpers ----
 
 ; Set the "Run as administrator" flag of a .lnk file (byte 0x15, bit 0x20).
@@ -182,6 +195,7 @@ Function .onInit
   ${IfNot} ${Errors}
     StrCpy $WWWDir $1
   ${EndIf}
+  Call DetectOldStack
 FunctionEnd
 
 Function WWWPagePre
@@ -208,6 +222,7 @@ Section "!Omni Web Server" SecCore
 
   SetOutPath "$INSTDIR"
   File "${SRCDIR}\${APPEXE}"
+  File "${SRCDIR}\${APPEXEW}"
   File "${SRCDIR}\README.md"
   File /oname=omni.ico "..\favicons\favicon.ico"
   WriteUninstaller "$INSTDIR\uninstall.exe"
@@ -283,6 +298,10 @@ SectionGroup "Developer apps (winget)" SecApps
   SectionEnd
 SectionGroupEnd
 
+Section /o "Import from Laragon / XAMPP" SecImport
+  !insertmacro AddPending "migrate:$MigrateKind"
+SectionEnd
+
 Section "Run as administrator" SecAdmin
   ; read in the shortcut section below
 SectionEnd
@@ -291,7 +310,7 @@ Section "Desktop shortcut" SecDesktop
 SectionEnd
 
 Section /o "Start with Windows" SecAutorun
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APPKEY}" '"$INSTDIR\${APPEXE}" serve --no-browser'
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APPKEY}" '"$INSTDIR\${APPEXEW}" serve --no-browser'
 SectionEnd
 
 ; Runs last: shortcuts, then settings + PATH + registry through omni init.
@@ -299,7 +318,7 @@ Section "-Finalize"
   SetShellVarContext current
   !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
     CreateDirectory "$SMPROGRAMS\$StartMenuFolder"
-    CreateShortCut "$SMPROGRAMS\$StartMenuFolder\${APPNAME}.lnk" "$INSTDIR\${APPEXE}" "" "$INSTDIR\omni.ico"
+    CreateShortCut "$SMPROGRAMS\$StartMenuFolder\${APPNAME}.lnk" "$INSTDIR\${APPEXEW}" "" "$INSTDIR\omni.ico"
     CreateShortCut "$SMPROGRAMS\$StartMenuFolder\Projects (www).lnk" "$WWWDir"
     CreateShortCut "$SMPROGRAMS\$StartMenuFolder\Uninstall ${APPNAME}.lnk" "$INSTDIR\uninstall.exe"
     ${If} ${SectionIsSelected} ${SecAdmin}
@@ -307,7 +326,7 @@ Section "-Finalize"
     ${EndIf}
   !insertmacro MUI_STARTMENU_WRITE_END
   ${If} ${SectionIsSelected} ${SecDesktop}
-    CreateShortCut "$DESKTOP\${APPNAME}.lnk" "$INSTDIR\${APPEXE}" "" "$INSTDIR\omni.ico"
+    CreateShortCut "$DESKTOP\${APPNAME}.lnk" "$INSTDIR\${APPEXEW}" "" "$INSTDIR\omni.ico"
     ${If} ${SectionIsSelected} ${SecAdmin}
       !insertmacro SetLnkRunAsAdmin "$DESKTOP\${APPNAME}.lnk"
     ${EndIf}
@@ -325,10 +344,52 @@ SectionEnd
   !insertmacro MUI_DESCRIPTION_TEXT ${SecVC} "$(DescVC)"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecStack} "$(DescStack)"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecApps} "$(DescApps)"
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecImport} "$(DescImport)"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecAdmin} "$(DescAdmin)"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop} "$(DescDesktop)"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecAutorun} "$(DescAutorun)"
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
+
+; ---- Laragon / XAMPP import ----
+
+; Shows the import option only when omni.exe finds Laragon or XAMPP
+; ("omni migrate detect" prints "kind|root" per installation).
+Function DetectOldStack
+  SectionSetText ${SecImport} ""
+  InitPluginsDir
+  File /oname=$PLUGINSDIR\omni-detect.exe "${SRCDIR}\${APPEXE}"
+  nsExec::ExecToStack '"$PLUGINSDIR\omni-detect.exe" --root "$PLUGINSDIR" migrate detect'
+  Pop $0
+  Pop $1
+  ${If} $0 != 0
+  ${OrIf} $1 == ""
+    Return
+  ${EndIf}
+  ${WordFind} "$1" "$\n" "+1" $2
+  ${WordFind} "$2" "$\r" "+1" $2
+  ${WordFind} "$2" "|" "+1" $MigrateKind
+  ${WordFind} "$2" "|" "+2" $MigrateRoot
+  ${If} $MigrateKind == "xampp"
+    StrCpy $MigrateName "XAMPP"
+  ${ElseIf} $MigrateKind == "laragon"
+    StrCpy $MigrateName "Laragon"
+  ${Else}
+    Return
+  ${EndIf}
+  SectionSetText ${SecImport} "$(ImportFrom) $MigrateName ($MigrateRoot)"
+  ; Preselected on a fresh install; an upgrade does not import again by itself.
+  ${IfNot} ${FileExists} "$INSTDIR\omni.json"
+    !insertmacro SelectSection ${SecImport}
+  ${EndIf}
+FunctionEnd
+
+; Lists every step before the user commits to the import.
+Function ComponentsLeave
+  ${If} ${SectionIsSelected} ${SecImport}
+    MessageBox MB_OKCANCEL|MB_ICONINFORMATION "$(ImportSteps)" IDOK +2
+    Abort
+  ${EndIf}
+FunctionEnd
 
 ; ---- uninstaller ----
 
@@ -354,6 +415,7 @@ Section "Uninstall"
   keepdata:
 
   Delete "$INSTDIR\${APPEXE}"
+  Delete "$INSTDIR\${APPEXEW}"
   Delete "$INSTDIR\README.md"
   Delete "$INSTDIR\omni.ico"
   Delete "$INSTDIR\uninstall.exe"

@@ -1,2 +1,22 @@
+# Build output
 dist/
 *.exe
+/omni
+/omniw
+*.test
+*.out
+
+# Generated knowledge graph (graphify)
+graphify-out/
+
+# Local tooling and editors
+.claude/
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store

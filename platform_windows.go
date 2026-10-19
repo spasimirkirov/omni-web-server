@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"unicode/utf16"
@@ -64,8 +65,24 @@ var (
 	procSetInformationJob  = kernel32.NewProc("SetInformationJobObject")
 	procAssignProcessToJob = kernel32.NewProc("AssignProcessToJobObject")
 	procGetCurrentProcess  = kernel32.NewProc("GetCurrentProcess")
+	procGetConsoleWindow   = kernel32.NewProc("GetConsoleWindow")
+	procMessageBox         = syscall.NewLazyDLL("user32.dll").NewProc("MessageBoxW")
 	jobHandle              uintptr
 )
+
+// hasConsole is false for omniw.exe (built with -H windowsgui), which the
+// shortcuts and the autostart entry use so no console window appears.
+func hasConsole() bool {
+	h, _, _ := procGetConsoleWindow.Call()
+	return h != 0
+}
+
+func showError(msg string) {
+	title, _ := syscall.UTF16PtrFromString("Omni Web Server")
+	text, _ := syscall.UTF16PtrFromString(msg)
+	const mbIconError = 0x10
+	procMessageBox.Call(0, uintptr(unsafe.Pointer(text)), uintptr(unsafe.Pointer(title)), mbIconError)
+}
 
 // initProcessGroup puts Omni Web Server in a job object that kills every child
 // (Apache, php-cgi, mysqld) when Omni Web Server exits, even if it is closed abruptly.
@@ -243,6 +260,96 @@ func missingRuntimes() []string {
 	return nil
 }
 
+func powershellOutput(script string) (string, error) {
+	out, err := hiddenCommand("powershell", "-NoProfile", "-NonInteractive", "-Command", script).Output()
+	return strings.TrimSpace(string(out)), err
+}
+
+// foreignProcesses lists the processes whose executable lives under root.
+func foreignProcesses(root string) []foreignProc {
+	out, err := powershellOutput(fmt.Sprintf(`$r=%s + '\'; Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($r, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { "$($_.Id)|$($_.ProcessName)" }`, psQuote(filepath.Clean(root))))
+	if err != nil {
+		return nil
+	}
+	var procs []foreignProc
+	for _, line := range strings.Split(out, "\n") {
+		id, name, ok := strings.Cut(strings.TrimSpace(line), "|")
+		pid, err := strconv.Atoi(id)
+		if ok && err == nil {
+			procs = append(procs, foreignProc{PID: pid, Name: strings.ToLower(name)})
+		}
+	}
+	return procs
+}
+
+func killPID(pid int) error {
+	return hiddenCommand("taskkill", "/F", "/PID", strconv.Itoa(pid)).Run()
+}
+
+// stopForeignServices stops the Windows services whose program lives under
+// root and sets them to manual start (one UAC prompt when there are any).
+func stopForeignServices(root string) (int, error) {
+	find := fmt.Sprintf(`$r=%s.ToLower(); $s=@(Get-CimInstance Win32_Service | Where-Object { $_.PathName -and $_.PathName.ToLower().Contains($r) })`, psQuote(filepath.Clean(root)))
+	out, err := powershellOutput(find + "; $s.Count")
+	if err != nil {
+		return 0, err
+	}
+	n, _ := strconv.Atoi(out)
+	if n == 0 {
+		return 0, nil
+	}
+	return n, runPowerShell(find+"\n$s | ForEach-Object { Stop-Service -Name $_.Name -Force -ErrorAction SilentlyContinue; Set-Service -Name $_.Name -StartupType Manual }", true)
+}
+
+// removeUserPathUnder removes user PATH entries that start with any of the prefixes.
+func removeUserPathUnder(prefixes []string) error {
+	quoted := make([]string, len(prefixes))
+	for i, p := range prefixes {
+		quoted[i] = psQuote(strings.ToLower(filepath.Clean(p)))
+	}
+	return runPowerShell(fmt.Sprintf(`$pre=@(%s); $p=[Environment]::GetEnvironmentVariable('Path','User'); if (-not $p) { exit 0 }
+$parts=@($p -split ';' | Where-Object { $_ })
+$keep=@($parts | Where-Object { $e=$_.ToLower().TrimEnd('\'); -not ($pre | Where-Object { $e -eq $_ -or $e.StartsWith($_ + '\') }) })
+if ($keep.Count -ne $parts.Count) { [Environment]::SetEnvironmentVariable('Path', ($keep -join ';'), 'User') }`, strings.Join(quoted, ",")), false)
+}
+
+// removeStartupEntries removes the old stack's Startup-folder shortcut and Run values.
+func removeStartupEntries(kind, root string) error {
+	return runPowerShell(fmt.Sprintf(`$r=%s.ToLower() + '\'; $sh=New-Object -ComObject WScript.Shell
+Get-ChildItem ([Environment]::GetFolderPath('Startup')) -Filter '*.lnk' -ErrorAction SilentlyContinue | Where-Object { $sh.CreateShortcut($_.FullName).TargetPath.ToLower().StartsWith($r) } | Remove-Item -Force
+$run='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+(Get-ItemProperty $run -ErrorAction SilentlyContinue).PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' -and "$($_.Value)".ToLower().Contains($r) } | ForEach-Object { Remove-ItemProperty $run -Name $_.Name }`, psQuote(filepath.Clean(root))), false)
+}
+
+// listeningPorts returns the TCP ports a process listens on.
+func listeningPorts(pid int) []int {
+	out, err := hiddenCommand("netstat", "-ano", "-p", "TCP").Output()
+	if err != nil {
+		return nil
+	}
+	var ports []int
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 5 && strings.EqualFold(f[3], "LISTENING") && f[4] == strconv.Itoa(pid) {
+			if i := strings.LastIndex(f[1], ":"); i >= 0 {
+				if p, err := strconv.Atoi(f[1][i+1:]); err == nil && !containsInt(ports, p) {
+					ports = append(ports, p)
+				}
+			}
+		}
+	}
+	return ports
+}
+
+func containsInt(list []int, v int) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
 var errResolverUnsupported = errors.New("unsupported")
 
 const nrptComment = "OmniWebServer"
@@ -303,7 +410,10 @@ func runPowerShell(script string, elevate bool) error {
 // trustCA adds the CA to the current user's Trusted Root store. Windows shows
 // its own confirmation dialog; no administrator rights are needed.
 func trustCA(path string) error {
-	out, err := exec.Command("certutil", "-user", "-addstore", "Root", path).CombinedOutput()
+	// No console window, but not HideWindow: that could hide the confirmation dialog.
+	cmd := exec.Command("certutil", "-user", "-addstore", "Root", path)
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("certutil: %v %s", err, strings.TrimSpace(string(out)))
 	}

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -50,6 +51,9 @@ Usage: omni [command]
   install node [ver]             download Node.js (latest LTS, "22" or "22.11.0")
   install xdebug <php-ver>       download Xdebug for a PHP version and enable it
   install tool <id>              install a Windows app with winget (see "tools")
+  migrate [laragon|xampp] [--root <dir>] [--password <pw>] [--yes]
+                                 import projects and databases from Laragon or XAMPP
+                                 and take over as the main server (shows the steps first)
   tools                          list developer tools and whether they are installed
   node [default <ver>]           list Node.js versions / choose the default
   share <site> [off]             public https URL for a site (Cloudflare quick tunnel)
@@ -79,6 +83,19 @@ func runCLI(root string, args []string) int {
 		err = cmdInit(root, rest)
 	case "cleanup":
 		err = cmdCleanup(root)
+	case "migrate":
+		if len(rest) > 0 && rest[0] == "detect" { // used by the installer: "kind|root" per line
+			for _, s := range detectSources(true) {
+				fmt.Printf("%s|%s\n", s.Kind, s.Root)
+			}
+			break
+		}
+		c, cerr := newClient(root)
+		if cerr != nil {
+			err = cerr
+			break
+		}
+		err = c.migrate(rest)
 	case "help", "-h", "--help", "/?":
 		fmt.Printf(usage, appVersion)
 	case "version", "--version":
@@ -93,6 +110,9 @@ func runCLI(root string, args []string) int {
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
+		if !hasConsole() {
+			showError(err.Error())
+		}
 		return 1
 	}
 	return 0
@@ -108,6 +128,16 @@ func hasFlag(args []string, f string) bool {
 }
 
 func cmdServe(root string, browser bool) error {
+	// Already running (e.g. the shortcut clicked again): just show the dashboard.
+	if c, err := newClient(root); err == nil && c.running() {
+		cfg, _, _ := loadConfig(root)
+		url := fmt.Sprintf("http://localhost:%d/", cfg.DashboardPort)
+		fmt.Println("Omni Web Server is already running:", url)
+		if browser {
+			return openURL(url)
+		}
+		return nil
+	}
 	initProcessGroup()
 	app, err := NewApp(root, "")
 	if err != nil {
@@ -720,6 +750,76 @@ func (c *client) install(body map[string]string) error {
 	if err := c.call("POST", "/api/install", body, &t); err != nil {
 		return err
 	}
+	return c.waitTask(t)
+}
+
+// migrate shows what an import from Laragon/XAMPP will do and runs it after confirmation.
+func (c *client) migrate(args []string) error {
+	var sources []migrationSource
+	if err := c.call("GET", "/api/migrate?fresh=1", nil, &sources); err != nil {
+		return err
+	}
+	if len(sources) == 0 {
+		return errors.New("no Laragon or XAMPP installation found")
+	}
+	kind, root := "", ""
+	if len(args) > 0 {
+		kind = args[0]
+	}
+	matches := 0
+	for i := 1; i+1 < len(args); i++ {
+		if args[i] == "--root" {
+			root = args[i+1]
+		}
+	}
+	for _, s := range sources {
+		if s.Kind == kind && (root == "" || strings.EqualFold(filepath.Clean(root), s.Root)) {
+			matches++
+		}
+	}
+	if matches > 1 {
+		return fmt.Errorf("several %s installations found; choose one with --root <folder>", kind)
+	}
+	for _, s := range sources {
+		if kind != "" && (s.Kind != kind || root != "" && !strings.EqualFold(filepath.Clean(root), s.Root)) {
+			continue
+		}
+		fmt.Printf("%s in %s\n  projects (%d): %s\n  databases (%d): %s\n\n", s.Name, s.Root, len(s.Projects), strings.Join(s.Projects, ", "), len(s.Databases), strings.Join(s.Databases, ", "))
+		if kind == "" {
+			continue
+		}
+		fmt.Println("This will:")
+		for i, step := range s.Steps {
+			fmt.Printf("  %d. %s\n", i+1, step)
+		}
+		body := map[string]any{"kind": kind, "root": s.Root}
+		for i := 1; i+1 < len(args); i++ {
+			if args[i] == "--password" {
+				body["password"] = args[i+1]
+			}
+		}
+		if !hasFlag(args, "--yes") {
+			fmt.Print("\nContinue? [y/N] ")
+			var answer string
+			fmt.Scanln(&answer)
+			if !strings.EqualFold(strings.TrimSpace(answer), "y") {
+				return errors.New("cancelled")
+			}
+		}
+		var t TaskView
+		if err := c.call("POST", "/api/migrate", body, &t); err != nil {
+			return err
+		}
+		return c.waitTask(t)
+	}
+	if kind != "" {
+		return fmt.Errorf("no %s installation found", kind)
+	}
+	fmt.Println("Run \"omni migrate laragon\" or \"omni migrate xampp\" to import.")
+	return nil
+}
+
+func (c *client) waitTask(t TaskView) error {
 	last := ""
 	for {
 		if err := c.call("GET", fmt.Sprintf("/api/tasks/%d", t.ID), nil, &t); err != nil {
