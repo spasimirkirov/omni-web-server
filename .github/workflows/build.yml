@@ -1,13 +1,11 @@
-# Builds omni.exe, the Setup.exe and the portable zip on every push and pull
-# request (download them from the run's "Artifacts"). Pushing a tag such as
-# v1.2.0 also publishes them as a GitHub release.
+# Pushing a tag such as v1.2.0 builds omni.exe, the Setup.exe and the
+# portable zip and publishes them as a GitHub release. "Run workflow" on the
+# Actions tab builds them without a release (download from "Artifacts").
 name: Build
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
-  pull_request:
   workflow_dispatch:
 
 permissions:

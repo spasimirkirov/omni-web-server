@@ -295,10 +295,10 @@ On Windows:
 3. Double-click `build.cmd`, which runs `build.sh` with Git Bash, or run
    `bash build.sh` from Git Bash.
 
-GitHub Actions (`.github/workflows/build.yml`) builds the same files on every
-push; download them from the run's **Artifacts**. To publish a release, set
-`appVersion` in `app.go`, then push a matching tag:
-`git tag v1.2.0 && git push origin v1.2.0`.
+To publish a release, set `appVersion` in `app.go`, then push a matching tag:
+`git tag v1.2.0 && git push origin v1.2.0`. GitHub Actions
+(`.github/workflows/build.yml`) then builds the same files and attaches them to
+the release. **Actions → Build → Run workflow** builds them without a release.
 
 `rsrc_windows_amd64.syso` embeds the icon and version information in
 `omni.exe`. To regenerate it, run:
