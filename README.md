@@ -47,7 +47,7 @@ it up.
 | **Automatic sites** | Every folder in `www` becomes `http://<folder>.local`. Each project has an on/off switch. |
 | **Framework detection** | The right document root is picked automatically for Laravel, Symfony, CodeIgniter 4 (`public/`), Yii and Craft (`web/`), and WordPress. You can override it. |
 | **PHP per project** | Install any number of PHP versions and choose one per project. Toggle extensions and edit `php.ini` per version. **Xdebug** is one click away. |
-| **Databases** | MySQL 8.4 or MariaDB 11.4, a database manager in the dashboard, and Adminer. |
+| **Databases** | MySQL 8.4 or MariaDB 11.4, ready to use with any client (HeidiSQL, DBeaver, PhpStorm). Adminer is optional. |
 | **Mail and cache** | **Mailpit** catches every e-mail your apps send. **Redis** handles cache, queues and sessions. |
 | **Composer and Node.js** | Several Node.js versions with one default, and no separate installers. |
 | **Same PHP everywhere** | `omni`, `php`, `composer`, `node`, `mysql` and other commands are added to your **PATH**. Terminals, VS Code and PhpStorm use the same PHP and `php.ini` as the web server. |
@@ -58,11 +58,12 @@ it up.
 
 ## Install
 
-> Omni Web Server is still in development, so there are no published
-> releases yet. Build the installer yourself (see
-> [Building from source](#building-from-source)); it ends up in `dist\`.
+> Omni Web Server is still in development. Releases are marked as
+> pre-releases until it is stable.
 
-1. Run `OmniWebServer-<version>-Setup.exe`.
+1. Download `OmniWebServer-<version>-Setup.exe` from
+   [Releases](https://github.com/spasimirkirov/omni-web-server/releases) and
+   run it.
 2. **Program folder**: for example `C:\OmniWebServer`. Use a short path
    without spaces. Avoid *Program Files*, because normal users can't write
    to it.

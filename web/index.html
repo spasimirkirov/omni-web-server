@@ -128,7 +128,6 @@ dialog ol.steps li { margin-bottom: 6px; }
     <nav id="nav">
       <button data-tab="overview" class="active">Overview</button>
       <button data-tab="php">PHP</button>
-      <button data-tab="db">Databases</button>
       <button data-tab="tools">Tools</button>
       <button data-tab="logs">Logs</button>
       <button data-tab="settings">Settings</button>
@@ -142,7 +141,6 @@ dialog ol.steps li { margin-bottom: 6px; }
   <div id="tasks"></div>
   <section id="tab-overview"></section>
   <section id="tab-php" hidden></section>
-  <section id="tab-db" hidden></section>
   <section id="tab-tools" hidden></section>
   <section id="tab-logs" hidden></section>
   <section id="tab-settings" hidden></section>
@@ -372,32 +370,6 @@ function iniRow(k, v) {
   return `<input type="text" placeholder="key (e.g. memory_limit)" value="${esc(k)}" class="ini-k"><input type="text" placeholder="value" value="${esc(v)}" class="ini-v"><button class="btn small" data-ini-del title="Remove">×</button>`;
 }
 
-async function renderDB() {
-  const el = $("#tab-db");
-  const mysql = S.services.find(s => s.name === "mysql");
-  if (!mysql.installed) { el.innerHTML = `<div class="panel empty">MySQL is not installed. Install it from the Overview tab.</div>`; return; }
-  if (mysql.status.state !== "running") { el.innerHTML = `<div class="panel empty">${esc(mysql.title)} is not running. <button class="btn primary" data-svc="mysql" data-a="start">Start ${esc(mysql.title)}</button></div>`; return; }
-  let dbs = [];
-  let err = "";
-  try { dbs = await api("GET", "/api/databases"); } catch (e) { err = e.message; }
-  const adminer = (S.sites || []).find(s => s.name === "adminer");
-  el.innerHTML = `
-    <h2>Databases<span class="spacer"></span>
-      <button class="btn small primary" data-act="db-create">New database…</button></h2>
-    ${err ? `<div class="notice error">${esc(err)}</div>` : ""}
-    <div class="panel table-wrap">${dbs.length ? `<table><thead><tr><th>Name</th><th></th></tr></thead><tbody>
-      ${dbs.map(d => `<tr><td class="mono">${esc(d)}</td><td style="text-align:right"><button class="btn small danger" data-db-drop="${esc(d)}">Drop</button></td></tr>`).join("")}
-    </tbody></table>` : `<div class="empty">No databases yet.</div>`}</div>
-    <h2>Connection</h2>
-    <div class="panel pad">
-      <div class="mono small">DB_HOST=127.0.0.1<br>DB_PORT=${S.settings.mysql_port}<br>DB_USERNAME=root<br>DB_PASSWORD=${S.settings.has_root_password ? "(set)" : ""}</div>
-      <div class="row" style="margin-top:12px">
-        <button class="btn" data-act="root-pass">Change root password…</button>
-        ${adminer ? `<a class="btn" href="${esc(hostURL(adminer.host))}" target="_blank" rel="noopener">Open Adminer</a>` : `<button class="btn" data-install="adminer">Install Adminer</button>`}
-      </div>
-    </div>`;
-}
-
 let toolsCache = null, importCache = null;
 async function renderTools(reload) {
   const el = $("#tab-tools");
@@ -529,6 +501,12 @@ function renderSettings() {
       ${sw("ssl", "Enable HTTPS", "Every enabled site is also served at <code>https://name." + esc(st.tld) + "</code> (and its subdomains) with a certificate from Omni Web Server's local CA.")}
       ${sslStatusHTML()}
     </div></div>
+    <h2>MySQL</h2>
+    <div class="panel pad"><div class="form-grid">
+      <label>Connection</label><div class="mono small">DB_HOST=127.0.0.1<br>DB_PORT=${st.mysql_port}<br>DB_USERNAME=root<br>DB_PASSWORD=${st.has_root_password ? "(set)" : ""}
+        <div class="hint">Connect with any MySQL client, for example HeidiSQL or DBeaver from the Tools tab.</div></div>
+      <label>Root password</label><div><button class="btn" data-act="root-pass">Change root password…</button></div>
+    </div></div>
     <h2>Ports</h2>
     <div class="panel pad"><div class="form-grid">
       <label for="s-http">Apache (HTTP)</label><div><input type="number" id="s-http" value="${st.http_port}" style="width:110px"></div>
@@ -571,7 +549,6 @@ function showTab(name) {
   for (const s of document.querySelectorAll("main > section")) s.hidden = s.id !== "tab-" + name;
   if (name === "overview") renderOverview();
   if (name === "php") renderPHP(true);
-  if (name === "db") renderDB();
   if (name === "tools") renderTools(true);
   if (name === "logs") renderLogs();
   if (name === "settings") renderSettings();
@@ -647,7 +624,7 @@ document.addEventListener("click", async e => {
   try {
     if (d.tab) return showTab(d.tab);
     if (d.goto) return showTab(d.goto);
-    if (d.svc) { await act("POST", `/api/services/${d.svc}/${d.a}`); if (tab === "db") renderDB(); return; }
+    if (d.svc) { await act("POST", `/api/services/${d.svc}/${d.a}`); return; }
     if (d.install) return startInstall({ component: d.install, version: d.version || "" });
     if (d.share) {
       const on = d.on === "1";
@@ -679,7 +656,6 @@ document.addEventListener("click", async e => {
       await act("POST", `/api/php/${d.iniSave}/settings`, { ini, workers }, "PHP " + d.iniSave + " settings saved; workers restarted");
       return renderPHP(true);
     }
-    if (d.dbDrop) { if (confirm(`Drop database ${d.dbDrop}? This deletes all its data.`)) { await act("DELETE", `/api/databases/${enc(d.dbDrop)}`, undefined, "Dropped " + d.dbDrop); renderDB(); } return; }
     switch (d.act) {
       case "start-all": return act("POST", "/api/services/all/restart", undefined, "Services started");
       case "stop-all": return act("POST", "/api/services/all/stop", undefined, "Services stopped");
@@ -706,14 +682,9 @@ document.addEventListener("click", async e => {
         if (v) await startInstall({ component: "node", version: v.version });
         return;
       }
-      case "db-create": {
-        const v = await dialog("New database", field("Name", "name", 'required pattern="[A-Za-z0-9_$-]{1,64}"', "utf8mb4 / utf8mb4_unicode_ci"), "Create");
-        if (v) { await act("POST", "/api/databases", v, "Created " + v.name); renderDB(); }
-        return;
-      }
       case "root-pass": {
         const v = await dialog("Change MySQL root password", `<label>New password (empty for none)<br><input type="password" class="wide" name="password"></label>`, "Change");
-        if (v) await act("POST", "/api/mysql/password", v, "Root password changed");
+        if (v) { await act("POST", "/api/mysql/password", v, "Root password changed"); await refresh(true); if (tab === "settings") renderSettings(); }
         return;
       }
       case "log-refresh": return loadLog();
@@ -756,7 +727,7 @@ document.addEventListener("input", e => {
   await refresh(true);
   let saved = "overview";
   try { saved = localStorage.getItem("omni-tab") || "overview"; } catch (e) {}
-  showTab(["overview", "php", "db", "tools", "logs", "settings"].includes(saved) ? saved : "overview");
+  showTab(["overview", "php", "tools", "logs", "settings"].includes(saved) ? saved : "overview");
   setInterval(() => refresh(false), 2000);
 })();
 </script>
