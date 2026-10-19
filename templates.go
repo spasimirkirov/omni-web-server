@@ -496,6 +496,12 @@ func (a *App) startNewProject(p newProject) (*Task, error) {
 		if !installed(a.mysqlBin(cfg)) {
 			return nil, badRequest("MySQL is not installed: install it on the Overview tab, or create the project without a database")
 		}
+		// Checked again when the database is created, in case MySQL is not up yet.
+		if a.mysql.Running() {
+			if dbs, err := a.listDatabases(cfg); err == nil && containsFold(dbs, p.Database) {
+				return nil, badRequest("a database named %s already exists: choose another name", p.Database)
+			}
+		}
 	}
 	if tpl.kind == "wordpress" {
 		if p.Database == "" {

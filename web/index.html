@@ -85,7 +85,7 @@ td.path { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-spa
 .switch input:checked + span::after { transform: translateX(16px); }
 .switch input:disabled + span { opacity: .55; cursor: default; }
 .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
-select, input[type=text], input[type=number], input[type=password] { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); color: var(--text); min-width: 0; }
+select, input[type=text], input[type=number], input[type=password], input[type=email] { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); color: var(--text); min-width: 0; }
 input[type=text].wide { width: 100%; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .exts { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px 14px; }
@@ -112,6 +112,14 @@ dialog form { padding: 18px; display: flex; flex-direction: column; gap: 12px; m
 dialog h3 { margin: 0; font-size: 16px; }
 dialog ol.steps { margin: 0; padding-left: 20px; max-height: 42vh; overflow: auto; font-size: 13px; }
 dialog ol.steps li { margin-bottom: 6px; }
+.np-panel { margin-bottom: 14px; padding: 0; }
+.np-panel form { display: flex; flex-direction: column; }
+.np-head { display: flex; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.np-grid { padding: 16px; max-width: none; grid-template-columns: 160px minmax(0, 640px); align-items: start; }
+.np-grid > label, .np-grid > span { padding-top: 7px; font-weight: 500; }
+.np-panel .notice { margin: 0 16px 12px; }
+.np-foot { padding: 12px 16px; border-top: 1px solid var(--border); gap: 8px; }
+@media (max-width: 640px) { .np-grid { grid-template-columns: minmax(0, 1fr); } .np-grid > label, .np-grid > span { padding-top: 0; } }
 .import-src { margin-bottom: 12px; padding: 0; overflow: hidden; }
 .import-head { width: 100%; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 16px; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .import-head:hover { background: var(--panel-2); }
@@ -315,16 +323,17 @@ function phpOptions(selected) {
     (S.php || []).map(p => `<option value="${esc(p.minor)}" ${selected === p.minor ? "selected" : ""}>PHP ${esc(p.minor)}</option>`).join("");
 }
 
-function renderOverview() {
+function renderOverview(force) {
   const el = $("#tab-overview");
-  if (el.contains(document.activeElement) && document.activeElement.tagName === "SELECT") return;
+  if (!force && el.contains(document.activeElement) && (document.activeElement.tagName === "SELECT" || (npPanel && npPanel.contains(document.activeElement)))) return;
   const sites = S.sites || [];
   el.innerHTML = `
     <div class="grid">${S.services.map(svcCard).join("")}${phpCard()}</div>
     <h2>Projects <span class="muted small" style="font-weight:400">${esc(S.settings.www_dir)}</span><span class="spacer"></span>
       <button class="btn small" data-act="rescan">Rescan</button>
-      <button class="btn small primary" data-act="new-project">New project…</button>
+      ${npOpen ? "" : `<button class="btn small primary" data-act="new-project">New project</button>`}
       <button class="btn small" data-act="add-site">Add vhost…</button></h2>
+    <div id="np-slot"></div>
     <div class="panel table-wrap">
       ${sites.length ? `<table>
         <thead><tr><th style="width:64px">Vhost</th><th>Project</th><th>URL</th><th>PHP</th><th>Document root</th><th></th></tr></thead>
@@ -332,6 +341,7 @@ function renderOverview() {
       </table>` : `<div class="empty">No projects yet. Create a folder in <code>${esc(S.settings.www_dir)}</code> and it appears here${S.settings.auto_vhost ? " with a vhost already enabled" : ""}.</div>`}
     </div>
     <p class="muted small">Every folder in www gets <code>&lt;folder&gt;.${esc(S.settings.tld)}</code>${S.settings.wildcard_dns ? ` and any subdomain of it (wildcard DNS)` : ""}. Laravel, Symfony and CodeIgniter projects are served from <code>public/</code> automatically. ${S.settings.auto_vhost ? "Auto vhost is on: new folders are enabled automatically." : "Auto vhost is off: new folders start disabled."}</p>`;
+  if (npOpen && npPanel) $("#np-slot").appendChild(npPanel);
 }
 
 function siteRow(s) {
@@ -757,7 +767,7 @@ const slugDB = s => s.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+
 // modal: the steps with their state, the live command output and, at the end,
 // buttons to open the result. Closing it leaves the task running.
 let taskTimer = null;
-function taskDialog(id, siteName) {
+function taskDialog(id, siteName, onFinish) {
   const dlg = $("#task-dlg");
   let follow = true, logOpen;
   const draw = t => {
@@ -786,7 +796,7 @@ function taskDialog(id, siteName) {
     let t;
     try { t = await api("GET", "/api/tasks/" + id); } catch (e) { clearInterval(taskTimer); return; }
     draw(t);
-    if (t.status !== "running") { clearInterval(taskTimer); refresh(true); }
+    if (t.status !== "running") { clearInterval(taskTimer); refresh(true); if (onFinish) { const f = onFinish; onFinish = null; f(t); } }
   };
   clearInterval(taskTimer);
   dlg.onclose = () => clearInterval(taskTimer);
@@ -796,81 +806,137 @@ function taskDialog(id, siteName) {
   taskTimer = setInterval(tick, 1000);
 }
 
-// newProjectDialog creates a project in www from a template, fully set up:
-// version, PHP version, database and (for WordPress) the admin account.
-async function newProjectDialog() {
-  let tpls, gitOK;
-  try { const r = await api("GET", "/api/templates"); tpls = r.templates; gitOK = r.git; } catch (e) { return toast(e.message, true); }
+// The "New project" panel on the Overview tab: a form in the page (not a
+// modal) that creates a project in www from a template, fully set up. The
+// panel is one DOM node kept across Overview refreshes, so what is typed stays,
+// also after a failed attempt.
+let npPanel = null, npOpen = false;
+
+async function toggleNewProject() {
+  npOpen = !npOpen;
+  if (npOpen && !npPanel) {
+    try { await buildNewProject(); } catch (e) { npOpen = false; return toast(e.message, true); }
+  }
+  renderOverview(true);
+  if (npOpen) npPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function buildNewProject() {
+  const r = await api("GET", "/api/templates");
+  const tpls = r.templates, gitOK = r.git;
+  let dbs = null; // existing databases, when MySQL runs
+  try { dbs = await api("GET", "/api/databases"); } catch (e) { dbs = null; }
   const phps = (S.php || []).map(p => p.minor);
   const defPHP = S.settings.default_php;
   const mysqlOK = (S.services.find(s => s.name === "mysql") || {}).installed;
-  const promise = dialog("New project", `
-    <label>Template<br><select name="template" class="wide">${tpls.map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join("")}</select></label>
-    <div class="hint" id="np-desc"></div>
-    <div id="np-version"></div>
-    ${field("Project name", "name", 'required pattern="[A-Za-z0-9][A-Za-z0-9._ -]{0,62}" placeholder="blog" autocomplete="off"')}
-    <div class="hint" id="np-url"></div>
-    <label id="np-php-wrap">PHP version<br><select name="php" class="wide">${phps.map(m => `<option ${m === defPHP ? "selected" : ""}>${esc(m)}</option>`).join("")}</select></label>
-    <div class="err small" id="np-php-warn"></div>
-    <div id="np-db"></div>
-    <div id="np-extra"></div>
-    ${gitOK ? `<label class="row" style="gap:8px"><input type="checkbox" name="git" checked> Initialize a Git repository (git init + first commit)</label>` : `<div class="hint">Install Git from the Tools tab to start projects with a Git repository.</div>`}`, "Create");
-  const form = $("#dlg-form"), $f = n => form.querySelector(`[name="${n}"]`);
+  const row = (label, input, hint = "", id = "") => `<label${id ? ` id="${id}"` : ""}>${label}</label><div>${input}${hint ? `<div class="hint">${hint}</div>` : ""}</div>`;
+
+  npPanel = document.createElement("div");
+  npPanel.className = "panel np-panel";
+  npPanel.innerHTML = `<form id="np-form" novalidate>
+    <div class="np-head"><strong>New project</strong><span class="spacer"></span><button type="button" class="btn small" data-act="new-project" aria-label="Close">✕</button></div>
+    <div class="form-grid np-grid">
+      ${row("Template", `<select name="template" class="wide">${tpls.map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join("")}</select>`, `<span id="np-desc"></span>`)}
+      <span id="np-version-label">Version</span><div id="np-version"></div>
+      ${row("Project name", `<input type="text" class="wide" name="name" required pattern="[A-Za-z0-9][A-Za-z0-9._ -]{0,62}" placeholder="blog" autocomplete="off">`, `<span id="np-url">The folder in www and the site name.</span>`)}
+      ${row("PHP version", phps.length ? `<select name="php">${phps.map(m => `<option ${m === defPHP ? "selected" : ""}>${esc(m)}</option>`).join("")}</select><div class="err small" id="np-php-warn"></div>`
+        : `<input type="hidden" name="php" value=""><span class="err small">No PHP installed yet: install a version on the PHP tab first.</span><div class="err small" id="np-php-warn" hidden></div>`, "", "np-php-label")}
+      <span id="np-db-label">Database</span><div id="np-db"></div>
+      <div id="np-extra" style="display:contents"></div>
+      ${row("Git", gitOK ? `<label class="row" style="gap:8px;font-weight:400"><input type="checkbox" name="git" checked> Initialize a Git repository (git init + first commit)</label>` : `<span class="muted small">Install Git from the Tools tab to start projects with a repository.</span>`)}
+    </div>
+    <div class="notice error" id="np-error" hidden></div>
+    <div class="row np-foot"><span class="spacer"></span><button type="button" class="btn" data-act="new-project">Cancel</button><button type="submit" class="btn primary" id="np-create">Create project</button></div>
+  </form>`;
+  const form = npPanel.querySelector("#np-form"), $f = n => form.querySelector(`[name="${n}"]`), $p = sel => npPanel.querySelector(sel);
   let dbTouched = false;
-  const update = () => {
-    const t = tpls.find(x => x.id === $f("template").value);
-    $("#np-desc").textContent = t.description;
-    $("#np-version").innerHTML = t.error ? `<div class="notice warn">Could not load the versions: ${esc(t.error)}</div>`
-      : t.versions.length ? `<label>Version<br><select name="version" class="wide">${t.versions.map(v => `<option value="${esc(v.version)}" data-php="${esc(v.php || "")}">${esc(v.label)}${v.php ? " · PHP " + esc(v.php) : ""}</option>`).join("")}</select></label>` : "";
-    $("#np-php-wrap").hidden = t.id === "html";
-    const name = $f("name").value.trim();
-    $("#np-url").textContent = name ? `http://${name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "")}.${S.settings.tld}  ·  ${S.settings.www_dir}\\${name}` : "";
-    const needDB = t.id === "wordpress";
-    $("#np-db").innerHTML = !t.database ? "" : !mysqlOK ? `<div class="hint">${needDB ? "WordPress needs MySQL: install it on the Overview tab first." : "Install MySQL on the Overview tab to create a database."}</div>`
-      : `<label class="row" style="gap:8px"><input type="checkbox" name="use_db" ${needDB || $f("use_db")?.checked !== false ? "checked" : ""} ${needDB ? "disabled" : ""}> Create a MySQL database</label>
-         ${field("Database name", "database", `pattern="[A-Za-z0-9_$-]{1,64}" value="${esc($f("database")?.value || slugDB(name))}" autocomplete="off"`, "Empty password is fine for local work; the root user from <b>Settings → MySQL</b> is used.")}`;
-    const extra = {
-      laravel: () => field("App name", "title", `value="${esc(name)}"`, "Goes into APP_NAME. The .env is filled in for the database, Mailpit and the site URL, and the migrations run."),
-      symfony: () => `<label class="row" style="gap:8px"><input type="checkbox" name="webapp"> Full web app (Twig, Doctrine, forms, security…)</label>`,
-      wordpress: () => field("Site title", "title", `value="${esc(name)}"`) + field("Admin user", "admin_user", 'value="admin" autocomplete="off"') +
-        `<label>Admin password<br><input type="password" class="wide" name="admin_password" autocomplete="new-password"></label>` +
-        field("Admin e-mail", "admin_email", 'type="email" value="admin@example.com"', "Mail is caught by Mailpit, so any address works."),
-      php: () => field("Page title", "title", `value="${esc(name)}"`),
-      html: () => field("Page title", "title", `value="${esc(name)}"`),
-    }[t.id.startsWith("laravel") ? "laravel" : t.id];
-    const keep = ["title", "admin_user", "admin_password", "admin_email"].map(n => [n, $f(n)?.value]);
-    $("#np-extra").innerHTML = extra ? extra() : "";
-    for (const [n, v] of keep) if (v !== undefined && $f(n) && n !== "title") $f(n).value = v;
-    checkPHP();
-  };
-  const checkPHP = () => {
+  const tpl = () => tpls.find(x => x.id === $f("template").value);
+  const host = name => name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+
+  const check = () => {
+    const t = tpl();
     const opt = $f("version")?.selectedOptions[0];
     const need = opt ? opt.dataset.php : "";
-    $("#np-php-warn").textContent = need && $f("php") && !phpOK(need, $f("php").value) ? `This version needs PHP ${need}. Choose another PHP version, or install one on the PHP tab.` : "";
+    $p("#np-php-warn").textContent = t.id !== "html" && need && !phpOK(need, $f("php").value) ? `This version needs PHP ${need}. Choose another PHP version, or install one on the PHP tab.` : "";
+    const db = $f("database"), useDB = $f("use_db");
+    const taken = db && !db.disabled && (!useDB || useDB.checked) && dbs && dbs.some(d => d.toLowerCase() === db.value.trim().toLowerCase());
+    if ($p("#np-db-warn")) $p("#np-db-warn").textContent = taken ? `A database named ${db.value.trim()} already exists. Choose another name.` : "";
+    const name = $f("name").value.trim();
+    const siteTaken = name && (S.sites || []).some(s => s.name.toLowerCase() === name.toLowerCase());
+    $p("#np-url").innerHTML = !name ? "The folder in www and the site name."
+      : siteTaken ? `<span class="err">A project named ${esc(name)} already exists.</span>`
+      : `${esc(S.settings.www_dir)}\\${esc(name)}  ·  http://${esc(host(name))}.${esc(S.settings.tld)}`;
+    $p("#np-create").disabled = !!(taken || siteTaken || $p("#np-php-warn").textContent);
   };
+
+  const update = () => {
+    const t = tpl(), name = $f("name").value.trim();
+    $p("#np-desc").textContent = t.description;
+    const versions = t.error ? `<div class="notice warn">Could not load the versions: ${esc(t.error)}</div>`
+      : t.versions.length ? `<select name="version" class="wide">${t.versions.map(v => `<option value="${esc(v.version)}" data-php="${esc(v.php || "")}">${esc(v.label)}${v.php ? " · PHP " + esc(v.php) : ""}</option>`).join("")}</select>` : "";
+    $p("#np-version").innerHTML = versions;
+    $p("#np-version-label").hidden = $p("#np-version").hidden = !versions;
+    $p("#np-php-label").hidden = $p("#np-php-label").nextElementSibling.hidden = t.id === "html";
+    const needDB = t.id === "wordpress";
+    const dbHTML = !t.database ? "" : !mysqlOK ? `<span class="muted small">${needDB ? "WordPress needs MySQL: install it on the Overview tab first." : "Install MySQL on the Overview tab to create a database."}</span>`
+      : `<label class="row" style="gap:8px;font-weight:400"><input type="checkbox" name="use_db" ${needDB || $f("use_db")?.checked !== false ? "checked" : ""} ${needDB ? "disabled" : ""}> Create a MySQL database</label>
+         <input type="text" name="database" pattern="[A-Za-z0-9_$-]{1,64}" value="${esc($f("database")?.value || slugDB(name))}" autocomplete="off" style="width:260px;margin-top:6px">
+         <div class="err small" id="np-db-warn"></div>
+         <div class="hint">Uses the root user from <b>Settings → MySQL</b>.${dbs ? "" : " MySQL is not running, so existing names are checked when the project is created."}</div>`;
+    $p("#np-db").innerHTML = dbHTML;
+    $p("#np-db-label").hidden = $p("#np-db").hidden = !dbHTML;
+    const keep = Object.fromEntries(["title", "admin_user", "admin_password", "admin_email"].map(n => [n, $f(n)?.value]));
+    const extra = {
+      laravel: () => row("App name", `<input type="text" class="wide" name="title" value="${esc(keep.title ?? name)}">`, "Goes into APP_NAME. The .env is filled in for the database, Mailpit and the site URL, and the migrations run."),
+      symfony: () => row("Symfony", `<label class="row" style="gap:8px;font-weight:400"><input type="checkbox" name="webapp"> Full web app (Twig, Doctrine, forms, security…)</label>`),
+      wordpress: () => row("Site title", `<input type="text" class="wide" name="title" value="${esc(keep.title ?? name)}">`) +
+        row("Admin user", `<input type="text" name="admin_user" value="${esc(keep.admin_user ?? "admin")}" autocomplete="off" style="width:260px">`) +
+        row("Admin password", `<input type="password" name="admin_password" value="${esc(keep.admin_password ?? "")}" autocomplete="new-password" style="width:260px">`) +
+        row("Admin e-mail", `<input type="email" name="admin_email" value="${esc(keep.admin_email ?? "admin@example.com")}" style="width:260px">`, "Mail is caught by Mailpit, so any address works."),
+      php: () => row("Page title", `<input type="text" class="wide" name="title" value="${esc(keep.title ?? name)}">`),
+      html: () => row("Page title", `<input type="text" class="wide" name="title" value="${esc(keep.title ?? name)}">`),
+    }[t.id.startsWith("laravel") ? "laravel" : t.id];
+    $p("#np-extra").innerHTML = extra ? extra() : "";
+    check();
+  };
+
   form.addEventListener("change", e => {
     if (e.target.name === "template") update();
-    if (e.target.name === "version" || e.target.name === "php") checkPHP();
     if (e.target.name === "use_db") $f("database").disabled = !e.target.checked;
+    check();
   });
   form.addEventListener("input", e => {
     if (e.target.name === "database") dbTouched = true;
     if (e.target.name === "name") {
       const name = e.target.value.trim();
-      $("#np-url").textContent = name ? `http://${name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "")}.${S.settings.tld}  ·  ${S.settings.www_dir}\\${name}` : "";
       if (!dbTouched && $f("database")) $f("database").value = slugDB(name);
-      for (const n of ["title"]) if ($f(n)) $f(n).value = name;
+      if ($f("title")) $f("title").value = name;
     }
+    check();
+  });
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const err = $p("#np-error");
+    err.hidden = true;
+    if (!form.reportValidity()) return;
+    const t = tpl(), v = n => ($f(n) ? ($f(n).type === "checkbox" ? $f(n).checked : $f(n).value.trim()) : "");
+    if (t.id === "wordpress" && !v("admin_password")) { err.textContent = "Enter a WordPress admin password."; err.hidden = false; return; }
+    const body = { template: t.id, version: v("version"), name: v("name"), php: t.id === "html" ? "" : v("php"), title: v("title") || v("name"),
+      database: t.database && mysqlOK && (t.id === "wordpress" || v("use_db")) ? v("database") : "",
+      admin_user: v("admin_user"), admin_password: v("admin_password"), admin_email: v("admin_email"), webapp: !!v("webapp"), git: !!v("git") };
+    let task;
+    try { task = await api("POST", "/api/projects", body); } catch (ex) { err.textContent = ex.message; err.hidden = false; return; }
+    taskDialog(task.id, body.name, async done => {
+      if (done.status === "done") { npOpen = false; npPanel = null; renderOverview(true); return; }
+      // Failed: the form keeps everything; refresh the database list so the
+      // name check knows about leftovers, and show the error under the form.
+      try { dbs = await api("GET", "/api/databases"); } catch (e) {}
+      err.textContent = done.error + " Change what is needed and create the project again.";
+      err.hidden = false;
+      check();
+    });
   });
   update();
-  const v = await promise;
-  if (!v) return;
-  const t = tpls.find(x => x.id === v.template);
-  const body = { template: v.template, version: v.version || "", name: v.name, php: t.id === "html" ? "" : v.php, title: v.title || v.name,
-    database: t.database && mysqlOK && (t.id === "wordpress" || v.use_db) ? v.database : "",
-    admin_user: v.admin_user || "", admin_password: v.admin_password || "", admin_email: v.admin_email || "", webapp: !!v.webapp, git: !!v.git };
-  const task = await act("POST", "/api/projects", body);
-  if (task && task.id) taskDialog(task.id, v.name);
 }
 
 async function startInstall(body) {
@@ -947,7 +1013,7 @@ document.addEventListener("click", async e => {
       case "rescan": return act("POST", "/api/rescan");
       case "hosts-sync": return act("POST", "/api/hosts/sync", undefined, "Hosts file updated");
       case "ssl-trust": await act("POST", "/api/ssl/trust", undefined, "Certificate trusted. Reload your https:// tabs."); return renderSettings();
-      case "new-project": return newProjectDialog();
+      case "new-project": return toggleNewProject();
       case "add-site": {
         const v = await dialog("Add a vhost for a folder outside www", `
           ${field("Name", "name", 'required placeholder="shop"', "Served at name." + esc(S.settings.tld))}
