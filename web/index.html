@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DevStack</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M9 10h14M9 16h14M9 22h9' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f5f7fa; --panel: #ffffff; --panel-2: #f0f3f7; --border: #dfe4ea; --text: #1d2733; --muted: #64707d;
+  --accent: #2563eb; --accent-text: #ffffff; --ok: #16a34a; --warn: #b45309; --warn-bg: #fff7e6; --err: #dc2626; --err-bg: #fdecec;
+  --on: #2563eb; --off: #c3cbd4; --shadow: 0 1px 2px rgba(16,24,40,.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141a; --panel: #161d25; --panel-2: #1c252f; --border: #2a3542; --text: #e3e9ef; --muted: #8d99a6;
+    --accent: #3b82f6; --accent-text: #ffffff; --ok: #22c55e; --warn: #f59e0b; --warn-bg: #2a2111; --err: #f87171; --err-bg: #2c1618;
+    --on: #3b82f6; --off: #3a4654; --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141a; --panel: #161d25; --panel-2: #1c252f; --border: #2a3542; --text: #e3e9ef; --muted: #8d99a6;
+  --accent: #3b82f6; --accent-text: #ffffff; --ok: #22c55e; --warn: #f59e0b; --warn-bg: #2a2111; --err: #f87171; --err-bg: #2c1618;
+  --on: #3b82f6; --off: #3a4654; --shadow: none;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, .mono { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12.5px; }
+header { background: var(--panel); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; }
+.bar { max-width: 1180px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.brand { font-weight: 700; font-size: 17px; display: flex; align-items: center; gap: 8px; }
+.brand .logo { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); display: inline-grid; place-items: center; }
+nav { display: flex; gap: 2px; flex-wrap: wrap; }
+nav button { background: none; border: 0; color: var(--muted); padding: 7px 12px; border-radius: 6px; cursor: pointer; font: inherit; }
+nav button.active { background: var(--panel-2); color: var(--text); font-weight: 600; }
+.spacer { flex: 1; }
+main { max-width: 1180px; margin: 0 auto; padding: 18px 16px 60px; }
+h2 { font-size: 15px; margin: 22px 0 10px; display: flex; align-items: center; gap: 10px; }
+h2 .spacer { flex: 1; }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+.pad { padding: 14px 16px; }
+.grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.svc { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.svc .top { display: flex; align-items: center; gap: 8px; }
+.svc .name { font-weight: 600; font-size: 15px; }
+.svc .meta { color: var(--muted); font-size: 12.5px; }
+.svc .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--off); flex: none; }
+.dot.running { background: var(--ok); }
+.dot.starting, .dot.restarting, .dot.stopping { background: var(--warn); }
+.dot.failed { background: var(--err); }
+.state { font-size: 12px; color: var(--muted); }
+button.btn, .btn { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 7px; border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer; white-space: nowrap; }
+.btn:hover { background: var(--panel-2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.danger { color: var(--err); }
+.btn.small { padding: 3px 8px; font-size: 12px; }
+.btn:disabled { opacity: .5; cursor: default; }
+.err { color: var(--err); font-size: 12.5px; white-space: pre-wrap; word-break: break-word; }
+.notice { padding: 10px 14px; border-radius: 8px; margin: 0 0 8px; font-size: 13px; border: 1px solid transparent; }
+.notice.warn { background: var(--warn-bg); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.notice.error { background: var(--err-bg); color: var(--err); }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+th { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; background: var(--panel-2); }
+tr:last-child td { border-bottom: 0; }
+td.path { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); font-weight: 600; }
+.badge.laravel { color: #ef4444; border-color: color-mix(in srgb, #ef4444 40%, transparent); }
+.badge.symfony, .badge.wordpress, .badge.codeigniter { color: var(--accent); }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.switch { position: relative; width: 36px; height: 20px; flex: none; display: inline-block; }
+.switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+.switch span { position: absolute; inset: 0; background: var(--off); border-radius: 99px; transition: .15s; cursor: pointer; }
+.switch span::after { content: ""; position: absolute; width: 16px; height: 16px; left: 2px; top: 2px; background: #fff; border-radius: 50%; transition: .15s; }
+.switch input:checked + span { background: var(--on); }
+.switch input:checked + span::after { transform: translateX(16px); }
+.switch input:disabled + span { opacity: .55; cursor: default; }
+.switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+select, input[type=text], input[type=number], input[type=password] { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); color: var(--text); min-width: 0; }
+input[type=text].wide { width: 100%; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.exts { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px 14px; }
+.ext { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.ext .n { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+.php-card { margin-bottom: 14px; }
+.php-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.php-head .v { font-weight: 700; font-size: 16px; }
+.section-title { font-weight: 600; font-size: 13px; margin: 14px 0 8px; }
+.kv { display: grid; grid-template-columns: minmax(140px, 220px) minmax(100px, 1fr) auto; gap: 6px; align-items: center; max-width: 640px; }
+pre.log { margin: 0; padding: 12px 14px; max-height: 65vh; overflow: auto; font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
+.task { padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid var(--border); }
+.task:last-child { border-bottom: 0; }
+.progress { height: 6px; background: var(--panel-2); border-radius: 99px; overflow: hidden; }
+.progress div { height: 100%; background: var(--accent); transition: width .3s; }
+.progress.indet div { width: 30% !important; animation: indet 1.2s infinite ease-in-out; }
+@keyframes indet { from { margin-left: -30%; } to { margin-left: 100%; } }
+.form-grid { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 12px 16px; align-items: center; max-width: 760px; }
+.form-grid label { font-weight: 500; }
+.hint { color: var(--muted); font-size: 12px; margin-top: 2px; }
+dialog { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text); padding: 0; width: min(520px, calc(100vw - 32px)); }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+dialog form { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+dialog h3 { margin: 0; font-size: 16px; }
+.toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 8px; font-size: 13px; z-index: 50; max-width: calc(100vw - 32px); box-shadow: 0 4px 16px rgba(0,0,0,.2); }
+.toast.error { background: var(--err); color: #fff; }
+.empty { padding: 28px; text-align: center; color: var(--muted); }
+@media (max-width: 720px) {
+  .form-grid { grid-template-columns: 1fr; gap: 4px 0; }
+  .form-grid > div { margin-bottom: 10px; }
+  .kv { grid-template-columns: 1fr 1fr auto; }
+  td.path { max-width: 160px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand"><span class="logo"><svg width="14" height="14" viewBox="0 0 32 32"><path d="M6 8h20M6 16h20M6 24h13" stroke="#fff" stroke-width="4" stroke-linecap="round"/></svg></span>DevStack</div>
+    <nav id="nav">
+      <button data-tab="overview" class="active">Overview</button>
+      <button data-tab="php">PHP</button>
+      <button data-tab="db">Databases</button>
+      <button data-tab="logs">Logs</button>
+      <button data-tab="settings">Settings</button>
+    </nav>
+    <div class="spacer"></div>
+    <div class="row" id="global-actions"></div>
+  </div>
+</header>
+<main>
+  <div id="notices"></div>
+  <div id="tasks"></div>
+  <section id="tab-overview"></section>
+  <section id="tab-php" hidden></section>
+  <section id="tab-db" hidden></section>
+  <section id="tab-logs" hidden></section>
+  <section id="tab-settings" hidden></section>
+</main>
+
+<dialog id="dlg"><form method="dialog" id="dlg-form"></form></dialog>
+
+<script>
+"use strict";
+let S = null;            // last /api/state
+let tab = "overview";
+let busy = false;
+const $ = (s, el = document) => el.querySelector(s);
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const enc = encodeURIComponent;
+
+async function api(method, path, body) {
+  const res = await fetch(path, {
+    method, headers: { "X-DevStack": "1", "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+function toast(msg, isErr) {
+  const t = document.createElement("div");
+  t.className = "toast" + (isErr ? " error" : "");
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), isErr ? 7000 : 2500);
+}
+
+// act runs an API call, shows errors, then refreshes the state.
+async function act(method, path, body, okMsg) {
+  try {
+    busy = true;
+    document.body.style.cursor = "progress";
+    const r = await api(method, path, body);
+    if (okMsg) toast(okMsg);
+    return r;
+  } catch (e) {
+    toast(e.message, true);
+    throw e;
+  } finally {
+    busy = false;
+    document.body.style.cursor = "";
+    await refresh(true);
+  }
+}
+
+function hostURL(host) {
+  const p = S.settings.http_port;
+  return "http://" + host + (p === 80 ? "" : ":" + p) + "/";
+}
+
+// ---------- rendering ----------
+function renderGlobal() {
+  const anyRunning = S.services.some(s => s.status.state === "running");
+  $("#global-actions").innerHTML = `
+    ${S.platform === "windows" && !S.admin ? `<span class="badge" title="The hosts file needs administrator rights; you will get a UAC prompt when it changes.">not admin</span>` : ""}
+    <button class="btn primary" data-act="start-all">${anyRunning ? "Restart all" : "Start all"}</button>
+    <button class="btn" data-act="stop-all">Stop all</button>`;
+}
+
+function renderNotices() {
+  $("#notices").innerHTML = (S.warnings || []).map(w => `<div class="notice warn">${esc(w)}</div>`).join("");
+  const tasks = S.tasks || [];
+  $("#tasks").innerHTML = tasks.length ? `<div class="panel" style="margin-bottom:12px">${tasks.map(t => `
+    <div class="task">
+      <div class="row"><strong>${esc(t.title)}</strong><span class="muted small">${esc(t.status === "running" ? t.message : t.status === "done" ? (t.message || "Done") : "Failed")}</span></div>
+      ${t.status === "running" ? `<div class="progress ${t.progress < 0 ? "indet" : ""}"><div style="width:${Math.max(0, t.progress) * 100}%"></div></div>` : ""}
+      ${t.error ? `<div class="err">${esc(t.error)}</div>` : ""}
+    </div>`).join("")}</div>` : "";
+}
+
+function svcCard(s) {
+  const st = s.status.state;
+  const running = st === "running" || st === "starting" || st === "restarting";
+  let body;
+  if (!s.installed) {
+    const comp = s.name === "mysql" ? "mysql" : "apache";
+    body = `<div class="meta">Not installed</div>
+      <div class="actions">
+        ${S.platform === "windows" ? (s.name === "mysql"
+          ? `<button class="btn primary" data-install="mysql">Install MySQL 8.4</button><button class="btn" data-install="mariadb">Install MariaDB 11.4</button>`
+          : `<button class="btn primary" data-install="apache">Install Apache</button>`) : `<span class="muted small">Install it with your package manager; DevStack detects it on first run.</span>`}
+        <button class="btn" data-install-url="${comp}">From URL…</button>
+      </div>`;
+  } else {
+    body = `<div class="meta">${esc(s.version || "")} · port ${s.port}${s.status.pid ? " · PID " + s.status.pid : ""}</div>
+      <div class="actions">
+        ${running ? `<button class="btn" data-svc="${s.name}" data-a="restart">Restart</button><button class="btn" data-svc="${s.name}" data-a="stop">Stop</button>`
+                  : `<button class="btn primary" data-svc="${s.name}" data-a="start">Start</button>`}
+        <button class="btn" data-log="${s.name === "mysql" ? "mysql_error" : "apache_error"}">Log</button>
+      </div>`;
+  }
+  return `<div class="panel svc">
+    <div class="top"><span class="dot ${esc(st)}"></span><span class="name">${esc(s.title)}</span><span class="state">${s.installed ? esc(st) : ""}</span></div>
+    ${body}
+    ${s.status.error ? `<div class="err">${esc(s.status.error)}</div>` : ""}
+  </div>`;
+}
+
+function phpCard() {
+  const vs = S.php || [];
+  return `<div class="panel svc">
+    <div class="top"><span class="dot ${vs.some(p => p.running) ? "running" : ""}"></span><span class="name">PHP</span><span class="state">${vs.length} version${vs.length === 1 ? "" : "s"}</span></div>
+    ${vs.length ? vs.map(p => `<div class="meta">${p.default ? "★ " : ""}<strong>${esc(p.minor)}</strong> ${esc(p.version)} · ${p.in_use ? `${p.running}/${p.workers} workers · port ${p.port}` : "not in use"}</div>`).join("")
+                : `<div class="meta">No PHP installed</div>`}
+    <div class="actions"><button class="btn" data-goto="php">Manage PHP</button></div>
+  </div>`;
+}
+
+function phpOptions(selected) {
+  const def = S.settings.default_php;
+  return `<option value="" ${selected === "" ? "selected" : ""}>Default${def ? " (" + esc(def) + ")" : ""}</option>` +
+    (S.php || []).map(p => `<option value="${esc(p.minor)}" ${selected === p.minor ? "selected" : ""}>PHP ${esc(p.minor)}</option>`).join("");
+}
+
+function renderOverview() {
+  const el = $("#tab-overview");
+  if (el.contains(document.activeElement) && document.activeElement.tagName === "SELECT") return;
+  const sites = S.sites || [];
+  el.innerHTML = `
+    <div class="grid">${S.services.map(svcCard).join("")}${phpCard()}</div>
+    <h2>Projects <span class="muted small" style="font-weight:400">${esc(S.settings.www_dir)}</span><span class="spacer"></span>
+      <button class="btn small" data-act="rescan">Rescan</button>
+      <button class="btn small" data-act="add-site">Add vhost…</button></h2>
+    <div class="panel table-wrap">
+      ${sites.length ? `<table>
+        <thead><tr><th style="width:64px">Vhost</th><th>Project</th><th>URL</th><th>PHP</th><th>Document root</th><th></th></tr></thead>
+        <tbody>${sites.map(siteRow).join("")}</tbody>
+      </table>` : `<div class="empty">No projects yet. Create a folder in <code>${esc(S.settings.www_dir)}</code> and it appears here${S.settings.auto_vhost ? " with a vhost already enabled" : ""}.</div>`}
+    </div>
+    <p class="muted small">Every folder in www gets <code>&lt;folder&gt;.${esc(S.settings.tld)}</code>. Laravel, Symfony and CodeIgniter projects are served from <code>public/</code> automatically. ${S.settings.auto_vhost ? "Auto vhost is on: new folders are enabled automatically." : "Auto vhost is off: new folders start disabled."}</p>`;
+}
+
+function siteRow(s) {
+  const rel = s.docroot.startsWith(s.path) ? (s.docroot.slice(s.path.length).replace(/^[\\/]/, "") || ".") : s.docroot;
+  return `<tr>
+    <td><label class="switch" title="${s.enabled ? "Disable" : "Enable"} vhost"><input type="checkbox" data-site-toggle="${esc(s.name)}" ${s.enabled ? "checked" : ""} ${s.missing ? "disabled" : ""}><span></span></label></td>
+    <td><strong>${esc(s.name)}</strong> <span class="badge ${esc(s.framework)}">${esc(s.framework)}</span>${s.external ? ` <span class="badge" title="${esc(s.path)}">external</span>` : ""}
+      ${s.warning ? `<div class="err">${esc(s.warning)}</div>` : ""}</td>
+    <td>${s.enabled && !s.missing ? `<a href="${esc(hostURL(s.host))}" target="_blank" rel="noopener">${esc(s.host)}</a>` : `<span class="muted">${esc(s.host)}</span>`}</td>
+    <td><select data-site-php="${esc(s.name)}" aria-label="PHP version for ${esc(s.name)}">${phpOptions(s.php_setting)}</select></td>
+    <td class="path mono" title="${esc(s.docroot)}">${esc(rel)}${s.docroot_override ? ` <span class="badge">custom</span>` : ""}</td>
+    <td style="white-space:nowrap;text-align:right">
+      <button class="btn small" data-site-root="${esc(s.name)}" title="Change document root">Root</button>
+      <button class="btn small" data-site-open="${esc(s.name)}" data-what="folder" title="Open folder">Folder</button>
+      ${S.platform === "windows" ? `<button class="btn small" data-site-open="${esc(s.name)}" data-what="terminal" title="Terminal with PHP on PATH">Terminal</button>` : ""}
+      ${s.external ? `<button class="btn small danger" data-site-remove="${esc(s.name)}">Remove</button>` : ""}
+    </td>
+  </tr>`;
+}
+
+let phpFilter = "";
+function renderPHP(force) {
+  const el = $("#tab-php");
+  if (!force && el.contains(document.activeElement) && document.activeElement.tagName !== "BUTTON") return;
+  const vs = S.php || [];
+  el.innerHTML = `
+    <h2>Installed versions<span class="spacer"></span>
+      <button class="btn small primary" data-act="php-install">Install version…</button>
+      <button class="btn small" data-act="php-add">Add existing folder…</button></h2>
+    ${vs.length ? "" : `<div class="panel empty">No PHP installed yet.</div>`}
+    ${vs.slice().reverse().map(phpVersionCard).join("")}
+    ${vs.length ? `<p class="muted small">CLI shims (<code>php</code>, <code>php83</code>, …) that use the same php.ini are in <code>${esc(S.shims_dir)}</code>.
+      ${S.platform === "windows" ? `<button class="btn small" data-act="add-path">Add to my PATH</button>` : ""}</p>` : ""}`;
+  const f = $("#ext-filter-" + CSS.escape(window._phpFilterFocus || ""), el);
+  if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); }
+}
+
+function phpVersionCard(p) {
+  const shown = p.extensions.filter(e => !phpFilter || e.name.includes(phpFilter));
+  const toggles = shown.filter(e => !e.builtin), builtin = shown.filter(e => e.builtin);
+  const ini = Object.entries(p.ini || {});
+  return `<div class="panel php-card">
+    <div class="php-head">
+      <span class="v">PHP ${esc(p.minor)}</span><span class="muted">${esc(p.version)}</span>
+      ${p.default ? `<span class="badge">default</span>` : `<button class="btn small" data-php-default="${esc(p.minor)}">Make default</button>`}
+      <span class="badge">${p.in_use ? `${p.running}/${p.workers} workers running` : "not in use"}</span>
+      <span class="spacer" style="flex:1"></span>
+      <label class="small muted">Workers <input type="number" min="1" max="9" value="${p.workers}" style="width:60px" data-php-workers="${esc(p.minor)}"></label>
+      <button class="btn small" data-log="php${esc(p.minor.replace(".", ""))}_error">Error log</button>
+      ${p.removable ? `<button class="btn small danger" data-php-remove="${esc(p.minor)}">Uninstall</button>` : ""}
+    </div>
+    <div class="pad">
+      ${(p.warnings || []).map(w => `<div class="notice warn">${esc(w)}</div>`).join("")}
+      <div class="muted small mono" style="word-break:break-all">${esc(p.path)}<br>php.ini: ${esc(p.ini_path)}</div>
+      <div class="section-title row">Extensions <input type="text" placeholder="Filter…" value="${esc(phpFilter)}" id="ext-filter-${esc(p.minor)}" data-ext-filter="${esc(p.minor)}" style="width:160px;font-weight:400"></div>
+      <div class="exts">${toggles.map(e => `
+        <label class="ext"><span class="switch"><input type="checkbox" data-ext="${esc(e.name)}" data-minor="${esc(p.minor)}" ${e.enabled ? "checked" : ""}><span></span></span><span class="n">${esc(e.name)}</span></label>`).join("") || `<span class="muted small">No matching extensions.</span>`}
+      </div>
+      ${builtin.length ? `<div class="hint" style="margin-top:8px">Built in: ${builtin.map(e => esc(e.name)).join(", ")}</div>` : ""}
+      <div class="section-title">php.ini settings</div>
+      <div class="kv" data-ini="${esc(p.minor)}">
+        ${ini.map(([k, v]) => iniRow(k, v)).join("")}
+        ${iniRow("", "")}
+      </div>
+      <div class="row" style="margin-top:8px"><button class="btn small primary" data-ini-save="${esc(p.minor)}">Save settings</button>
+        <span class="hint">Defaults: ${Object.entries(p.ini_defaults || {}).filter(([k]) => !(k in (p.ini || {}))).map(([k, v]) => `${esc(k)}=${esc(v)}`).join(", ")}</span></div>
+    </div>
+  </div>`;
+}
+
+function iniRow(k, v) {
+  return `<input type="text" placeholder="key (e.g. memory_limit)" value="${esc(k)}" class="ini-k"><input type="text" placeholder="value" value="${esc(v)}" class="ini-v"><button class="btn small" data-ini-del title="Remove">×</button>`;
+}
+
+async function renderDB() {
+  const el = $("#tab-db");
+  const mysql = S.services.find(s => s.name === "mysql");
+  if (!mysql.installed) { el.innerHTML = `<div class="panel empty">MySQL is not installed. Install it from the Overview tab.</div>`; return; }
+  if (mysql.status.state !== "running") { el.innerHTML = `<div class="panel empty">${esc(mysql.title)} is not running. <button class="btn primary" data-svc="mysql" data-a="start">Start ${esc(mysql.title)}</button></div>`; return; }
+  let dbs = [];
+  let err = "";
+  try { dbs = await api("GET", "/api/databases"); } catch (e) { err = e.message; }
+  const adminer = (S.sites || []).find(s => s.name === "adminer");
+  el.innerHTML = `
+    <h2>Databases<span class="spacer"></span>
+      <button class="btn small primary" data-act="db-create">New database…</button></h2>
+    ${err ? `<div class="notice error">${esc(err)}</div>` : ""}
+    <div class="panel table-wrap">${dbs.length ? `<table><thead><tr><th>Name</th><th></th></tr></thead><tbody>
+      ${dbs.map(d => `<tr><td class="mono">${esc(d)}</td><td style="text-align:right"><button class="btn small danger" data-db-drop="${esc(d)}">Drop</button></td></tr>`).join("")}
+    </tbody></table>` : `<div class="empty">No databases yet.</div>`}</div>
+    <h2>Connection</h2>
+    <div class="panel pad">
+      <div class="mono small">DB_HOST=127.0.0.1<br>DB_PORT=${S.settings.mysql_port}<br>DB_USERNAME=root<br>DB_PASSWORD=${S.settings.has_root_password ? "(set)" : ""}</div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" data-act="root-pass">Change root password…</button>
+        ${adminer ? `<a class="btn" href="${esc(hostURL(adminer.host))}" target="_blank" rel="noopener">Open Adminer</a>` : `<button class="btn" data-install="adminer">Install Adminer</button>`}
+      </div>
+    </div>`;
+}
+
+let logName = "apache_error", logTimer = null;
+async function renderLogs() {
+  const el = $("#tab-logs");
+  let names = [];
+  try { names = await api("GET", "/api/logs"); } catch (e) {}
+  if (!names.includes(logName) && names.length) logName = names[0];
+  el.innerHTML = `
+    <div class="row" style="margin:6px 0 12px">
+      <select id="log-name">${names.map(n => `<option ${n === logName ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>
+      <button class="btn" data-act="log-refresh">Refresh</button>
+      <label class="row small muted"><span class="switch"><input type="checkbox" id="log-follow" ${logTimer ? "checked" : ""}><span></span></span>Follow</label>
+    </div>
+    <div class="panel"><pre class="log" id="log-text">Loading…</pre></div>`;
+  await loadLog();
+}
+
+async function loadLog() {
+  const pre = $("#log-text");
+  if (!pre) return;
+  try {
+    const r = await api("GET", "/api/logs/" + enc(logName) + "?lines=500");
+    const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 30;
+    pre.textContent = r.text || "(empty)";
+    if (atBottom) pre.scrollTop = pre.scrollHeight;
+  } catch (e) { pre.textContent = e.message; }
+}
+
+function renderSettings() {
+  const st = S.settings;
+  const sw = (key, label, hint) => `<label>${label}</label><div><label class="switch"><input type="checkbox" data-setting="${key}" ${st[key] ? "checked" : ""}><span></span></label>${hint ? `<div class="hint">${hint}</div>` : ""}</div>`;
+  $("#tab-settings").innerHTML = `
+    <h2>Virtual hosts</h2>
+    <div class="panel pad"><div class="form-grid">
+      ${sw("auto_vhost", "Auto vhost", "New folders in www get an enabled vhost automatically.")}
+      ${sw("manage_hosts", "Manage hosts file", "Adds <code>127.0.0.1 project." + esc(st.tld) + "</code> lines to <code class=\"mono\">" + esc(S.hosts_file) + "</code>.")}
+      <label for="s-tld">Domain suffix</label><div><input type="text" id="s-tld" value="${esc(st.tld)}" style="width:120px"><div class="hint">Projects are served at name.${esc(st.tld)}</div></div>
+      <label for="s-www">Projects folder</label><div><input type="text" class="wide mono" id="s-www" value="${esc(st.www_dir)}"></div>
+      <label></label><div class="row"><button class="btn primary" data-act="save-settings">Save</button><button class="btn" data-act="hosts-sync">Rewrite hosts file now</button></div>
+    </div></div>
+    <h2>Ports</h2>
+    <div class="panel pad"><div class="form-grid">
+      <label for="s-http">Apache (HTTP)</label><div><input type="number" id="s-http" value="${st.http_port}" style="width:110px"></div>
+      <label for="s-mysql">MySQL</label><div><input type="number" id="s-mysql" value="${st.mysql_port}" style="width:110px"></div>
+      <label for="s-dash">Dashboard</label><div><input type="number" id="s-dash" value="${st.dashboard_port}" style="width:110px"><div class="hint">Takes effect after restarting DevStack.</div></div>
+      <label></label><div><button class="btn primary" data-act="save-ports">Save ports</button></div>
+    </div></div>
+    <h2>Startup</h2>
+    <div class="panel pad"><div class="form-grid">
+      ${sw("autostart", "Start services", "Start Apache, PHP and MySQL when DevStack starts.")}
+      ${sw("open_browser", "Open dashboard", "Open this page in the browser when DevStack starts.")}
+      <label>DevStack</label><div class="row"><span class="mono small muted">${esc(S.root)} · v${esc(S.version)}</span><button class="btn danger" data-act="quit">Quit DevStack</button></div>
+    </div></div>`;
+}
+
+function render() {
+  if (!S) return;
+  renderGlobal();
+  renderNotices();
+  if (tab === "overview") renderOverview();
+  if (tab === "php") renderPHP(false);
+}
+
+async function refresh(force) {
+  if (busy && !force) return;
+  try {
+    S = await api("GET", "/api/state");
+    render();
+  } catch (e) {
+    $("#notices").innerHTML = `<div class="notice error">Cannot reach DevStack: ${esc(e.message)}. Is it still running?</div>`;
+  }
+}
+
+function showTab(name) {
+  tab = name;
+  for (const b of document.querySelectorAll("nav button")) b.classList.toggle("active", b.dataset.tab === name);
+  for (const s of document.querySelectorAll("main > section")) s.hidden = s.id !== "tab-" + name;
+  if (name === "overview") renderOverview();
+  if (name === "php") renderPHP(true);
+  if (name === "db") renderDB();
+  if (name === "logs") renderLogs();
+  if (name === "settings") renderSettings();
+  try { localStorage.setItem("devstack-tab", name); } catch (e) {}
+}
+
+// ---------- dialogs ----------
+function dialog(title, fieldsHTML, submitLabel) {
+  return new Promise(resolve => {
+    const dlg = $("#dlg"), form = $("#dlg-form");
+    form.innerHTML = `<h3>${esc(title)}</h3>${fieldsHTML}
+      <div class="row" style="justify-content:flex-end"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="ok">${esc(submitLabel || "OK")}</button></div>`;
+    dlg.onclose = () => {
+      if (dlg.returnValue !== "ok") return resolve(null);
+      const out = {};
+      for (const el of form.querySelectorAll("[name]")) out[el.name] = el.type === "checkbox" ? el.checked : el.value.trim();
+      resolve(out);
+    };
+    dlg.returnValue = "";
+    dlg.showModal();
+    const first = form.querySelector("input,select");
+    if (first) first.focus();
+  });
+}
+const field = (label, name, attrs = "", hint = "") => `<label>${esc(label)}<br><input type="text" class="wide" name="${name}" ${attrs}></label>${hint ? `<div class="hint">${hint}</div>` : ""}`;
+
+async function installDialog(component) {
+  const v = await dialog("Install from URL", field("Download URL (.zip)", "url", 'required placeholder="https://…"', "Use this when automatic download fails or for a specific build."), "Install");
+  if (v) await startInstall({ component, url: v.url });
+}
+
+async function startInstall(body) {
+  await act("POST", "/api/install", body, "Started: " + body.component);
+}
+
+async function phpInstallDialog() {
+  let cat = [];
+  let err = "";
+  try { cat = await api("GET", "/api/php/catalog"); } catch (e) { err = e.message; }
+  const opts = cat.map(r => `<option value="${esc(r.minor)}">PHP ${esc(r.version)}${r.installed ? " (installed " + esc(r.installed) + ")" : ""}</option>`).join("");
+  const v = await dialog("Install PHP", `
+    ${err ? `<div class="notice warn">${esc(err)}</div>` : ""}
+    ${opts ? `<label>Latest releases<br><select name="version" class="wide">${opts}</select></label>` : ""}
+    ${field("…or a specific version", "exact", 'placeholder="e.g. 7.4.33 or 8.1.31"', "Older versions are downloaded from the windows.php.net archives.")}
+    ${field("…or a download URL", "url", 'placeholder="https://…/php-x.y.z-nts-Win32-vs16-x64.zip"')}`, "Install");
+  if (!v) return;
+  const body = { component: "php", version: v.exact || v.version || "", url: v.url || "" };
+  if (!body.version && !body.url) return toast("Choose a version", true);
+  await startInstall(body);
+}
+
+// ---------- events ----------
+document.addEventListener("click", async e => {
+  const t = e.target.closest("button, a[data-x]");
+  if (!t) return;
+  const d = t.dataset;
+  try {
+    if (d.tab) return showTab(d.tab);
+    if (d.goto) return showTab(d.goto);
+    if (d.svc) { await act("POST", `/api/services/${d.svc}/${d.a}`); if (tab === "db") renderDB(); return; }
+    if (d.install) return startInstall({ component: d.install });
+    if (d.installUrl) return installDialog(d.installUrl);
+    if (d.log) { logName = d.log; return showTab("logs"); }
+    if (d.siteOpen) return act("POST", `/api/sites/${enc(d.siteOpen)}/open`, { what: d.what });
+    if (d.siteRemove) { if (confirm(`Remove the vhost ${d.siteRemove}? The folder is not deleted.`)) await act("DELETE", `/api/sites/${enc(d.siteRemove)}`); return; }
+    if (d.siteRoot) {
+      const s = S.sites.find(x => x.name === d.siteRoot);
+      const v = await dialog(`Document root of ${s.name}`, field("Folder (relative to the project, or absolute)", "docroot", `value="${esc(s.docroot_override)}" placeholder="auto (detected: ${esc(s.framework)})"`, "Leave empty to use the detected folder, e.g. <code>public</code> for Laravel."), "Save");
+      if (v) await act("PATCH", `/api/sites/${enc(s.name)}`, { docroot: v.docroot }, "Document root updated");
+      return;
+    }
+    if (d.phpDefault) return act("POST", "/api/php/default", { version: d.phpDefault }, "Default PHP is now " + d.phpDefault).then(() => renderPHP(true));
+    if (d.phpRemove) { if (confirm(`Uninstall PHP ${d.phpRemove}? Its folder will be deleted.`)) await act("DELETE", `/api/php/${d.phpRemove}`).then(() => renderPHP(true)); return; }
+    if (d.iniDel !== undefined) { const k = t.previousElementSibling.previousElementSibling; k.value = ""; t.previousElementSibling.value = ""; return; }
+    if (d.iniSave) {
+      const box = document.querySelector(`[data-ini="${CSS.escape(d.iniSave)}"]`);
+      const ks = box.querySelectorAll(".ini-k"), vs = box.querySelectorAll(".ini-v");
+      const ini = {};
+      ks.forEach((k, i) => { if (k.value.trim()) ini[k.value.trim()] = vs[i].value.trim(); });
+      const workers = parseInt(document.querySelector(`[data-php-workers="${CSS.escape(d.iniSave)}"]`).value, 10) || 0;
+      await act("POST", `/api/php/${d.iniSave}/settings`, { ini, workers }, "PHP " + d.iniSave + " settings saved; workers restarted");
+      return renderPHP(true);
+    }
+    if (d.dbDrop) { if (confirm(`Drop database ${d.dbDrop}? This deletes all its data.`)) { await act("DELETE", `/api/databases/${enc(d.dbDrop)}`, undefined, "Dropped " + d.dbDrop); renderDB(); } return; }
+    switch (d.act) {
+      case "start-all": return act("POST", "/api/services/all/restart", undefined, "Services started");
+      case "stop-all": return act("POST", "/api/services/all/stop", undefined, "Services stopped");
+      case "rescan": return act("POST", "/api/rescan");
+      case "hosts-sync": return act("POST", "/api/hosts/sync", undefined, "Hosts file updated");
+      case "add-site": {
+        const v = await dialog("Add a vhost for a folder outside www", `
+          ${field("Name", "name", 'required placeholder="shop"', "Served at name." + esc(S.settings.tld))}
+          ${field("Project folder (absolute path)", "path", 'required placeholder="D:\\\\projects\\\\shop"')}
+          <label>PHP version<br><select name="php" class="wide">${phpOptions("")}</select></label>`, "Add");
+        if (v) await act("POST", "/api/sites", v, "Added " + v.name);
+        return;
+      }
+      case "php-install": return phpInstallDialog();
+      case "php-add": {
+        const v = await dialog("Add an existing PHP", field("PHP folder (with php-cgi) or php-cgi binary", "path", 'required'), "Add");
+        if (v) await act("POST", "/api/php/add", v, "PHP added").then(() => renderPHP(true));
+        return;
+      }
+      case "add-path": return act("POST", "/api/path/add", undefined, "Added to PATH: open a new terminal to use php");
+      case "db-create": {
+        const v = await dialog("New database", field("Name", "name", 'required pattern="[A-Za-z0-9_$-]{1,64}"', "utf8mb4 / utf8mb4_unicode_ci"), "Create");
+        if (v) { await act("POST", "/api/databases", v, "Created " + v.name); renderDB(); }
+        return;
+      }
+      case "root-pass": {
+        const v = await dialog("Change MySQL root password", `<label>New password (empty for none)<br><input type="password" class="wide" name="password"></label>`, "Change");
+        if (v) await act("POST", "/api/mysql/password", v, "Root password changed");
+        return;
+      }
+      case "log-refresh": return loadLog();
+      case "save-settings": {
+        await act("POST", "/api/settings", { tld: $("#s-tld").value, www_dir: $("#s-www").value }, "Settings saved");
+        return renderSettings();
+      }
+      case "save-ports": {
+        await act("POST", "/api/settings", { http_port: +$("#s-http").value, mysql_port: +$("#s-mysql").value, dashboard_port: +$("#s-dash").value }, "Ports saved");
+        return renderSettings();
+      }
+      case "quit": if (confirm("Stop all services and quit DevStack?")) await api("POST", "/api/quit"); return;
+    }
+  } catch (err) { /* reported by act() */ }
+});
+
+document.addEventListener("change", async e => {
+  const t = e.target, d = t.dataset;
+  try {
+    if (d.siteToggle) return act("PATCH", `/api/sites/${enc(d.siteToggle)}`, { enabled: t.checked }, `${d.siteToggle}: vhost ${t.checked ? "enabled" : "disabled"}`);
+    if (d.sitePhp !== undefined) { t.blur(); return act("PATCH", `/api/sites/${enc(d.sitePhp)}`, { php: t.value }, `${d.sitePhp} now uses PHP ${t.value || "default"}`); }
+    if (d.ext) { await act("POST", `/api/php/${d.minor}/extensions`, { name: d.ext, enabled: t.checked }, `${d.ext} ${t.checked ? "enabled" : "disabled"} for PHP ${d.minor}`); return renderPHP(true); }
+    if (d.setting) { await act("POST", "/api/settings", { [d.setting]: t.checked }, "Saved"); return renderSettings(); }
+    if (t.id === "log-name") { logName = t.value; return loadLog(); }
+    if (t.id === "log-follow") { clearInterval(logTimer); logTimer = t.checked ? setInterval(loadLog, 2000) : null; }
+  } catch (err) {}
+});
+
+document.addEventListener("input", e => {
+  if (e.target.dataset.extFilter !== undefined) {
+    phpFilter = e.target.value.toLowerCase();
+    window._phpFilterFocus = e.target.dataset.extFilter;
+    renderPHP(true);
+  }
+});
+
+
+(async () => {
+  await refresh(true);
+  let saved = "overview";
+  try { saved = localStorage.getItem("devstack-tab") || "overview"; } catch (e) {}
+  showTab(["overview", "php", "db", "logs", "settings"].includes(saved) ? saved : "overview");
+  setInterval(() => refresh(false), 2000);
+})();
+</script>
+</body>
+</html>
