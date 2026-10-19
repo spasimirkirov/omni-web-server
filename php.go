@@ -211,8 +211,8 @@ func iniQuote(v string) string {
 }
 
 // renderPHPIni builds the full php.ini: the shipped template with its extension
-// lines commented out, followed by DevStack's managed section (later keys win).
-func (a *App) renderPHPIni(minor string, p *PHPInstall) string {
+// lines commented out, followed by Omni Web Server's managed section (later keys win).
+func (a *App) renderPHPIni(cfg *Config, minor string, p *PHPInstall) string {
 	var b strings.Builder
 	sc := bufio.NewScanner(strings.NewReader(a.baseIni(minor, p)))
 	sc.Buffer(make([]byte, 1024*1024), 1024*1024)
@@ -226,7 +226,7 @@ func (a *App) renderPHPIni(minor string, p *PHPInstall) string {
 	}
 	tag := strings.ReplaceAll(minor, ".", "")
 	fmt.Fprintf(&b, "\n; ------------------------------------------------------------------\n")
-	fmt.Fprintf(&b, "; DevStack managed section (generated). Change these from the dashboard.\n")
+	fmt.Fprintf(&b, "; Omni Web Server managed section (generated). Change these from the dashboard.\n")
 	fmt.Fprintf(&b, "; ------------------------------------------------------------------\n[PHP]\n")
 	fmt.Fprintf(&b, "extension_dir = %s\n", iniQuote(slash(a.phpExtDir(p))))
 	available := a.availableExtensions(p)
@@ -252,6 +252,13 @@ func (a *App) renderPHPIni(minor string, p *PHPInstall) string {
 	if !exists(ca) {
 		ca = a.path("etc", "ssl", "cacert.pem")
 	}
+	if installed(a.mailpitBin(cfg)) {
+		// mail() goes to Mailpit: SMTP on Windows, the sendmail shim elsewhere.
+		fixed = append(fixed, [2]string{"SMTP", "127.0.0.1"}, [2]string{"smtp_port", fmt.Sprint(cfg.Mailpit.SMTPPort)})
+		if runtime.GOOS != "windows" {
+			fixed = append(fixed, [2]string{"sendmail_path", fmt.Sprintf("%s sendmail -S 127.0.0.1:%d", a.mailpitBin(cfg), cfg.Mailpit.SMTPPort)})
+		}
+	}
 	if exists(ca) {
 		fixed = append(fixed, [2]string{"curl.cainfo", slash(ca)}, [2]string{"openssl.cafile", slash(ca)})
 	}
@@ -261,6 +268,13 @@ func (a *App) renderPHPIni(minor string, p *PHPInstall) string {
 	merged := map[string]string{}
 	for _, kv := range defaultPHPIni {
 		merged[kv[0]] = kv[1]
+	}
+	if contains(p.Extensions, "xdebug") {
+		// Step debugging on demand (XDEBUG_TRIGGER / browser extension), IDE on port 9003.
+		merged["xdebug.mode"] = "debug,develop"
+		merged["xdebug.start_with_request"] = "trigger"
+		merged["xdebug.client_host"] = "127.0.0.1"
+		merged["xdebug.client_port"] = "9003"
 	}
 	for k, v := range p.INI {
 		merged[k] = v
@@ -384,32 +398,4 @@ func (a *App) probeCLIVersion(cli string) (string, error) {
 		return "", fmt.Errorf("no version")
 	}
 	return v, nil
-}
-
-// writeShims creates php.cmd / phpXY.cmd (or shell scripts) in bin/shims so the
-// CLI uses the same php.ini as the web server.
-func (a *App) writeShims(cfg *Config) {
-	dir := a.path("bin", "shims")
-	_ = os.MkdirAll(dir, 0o755)
-	write := func(name, cli, ini string) {
-		if runtime.GOOS == "windows" {
-			body := fmt.Sprintf("@echo off\r\n\"%s\" -c \"%s\" %%*\r\n", cli, ini)
-			_, _ = writeIfChanged(filepath.Join(dir, name+".cmd"), []byte(body))
-		} else {
-			body := fmt.Sprintf("#!/bin/sh\nPHP_INI_SCAN_DIR= exec \"%s\" -c \"%s\" \"$@\"\n", cli, ini)
-			p := filepath.Join(dir, name)
-			_, _ = writeIfChanged(p, []byte(body))
-			_ = os.Chmod(p, 0o755)
-		}
-	}
-	for minor, p := range cfg.PHP {
-		cli := a.phpCLI(p)
-		if cli == "" {
-			continue
-		}
-		write("php"+strings.ReplaceAll(minor, ".", ""), cli, a.phpIniPath(minor))
-		if minor == cfg.DefaultPHP {
-			write("php", cli, a.phpIniPath(minor))
-		}
-	}
 }

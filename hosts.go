@@ -8,11 +8,11 @@ import (
 )
 
 const (
-	hostsBegin = "# BEGIN DevStack (managed automatically, do not edit)"
-	hostsEnd   = "# END DevStack"
+	hostsBegin = "# BEGIN Omni Web Server (managed automatically, do not edit)"
+	hostsEnd   = "# END Omni Web Server"
 )
 
-// renderHosts replaces DevStack's block in a hosts file with entries for hosts.
+// renderHosts replaces Omni Web Server's block in a hosts file with entries for hosts.
 func renderHosts(existing string, hosts []string) string {
 	nl := "\n"
 	if strings.Contains(existing, "\r\n") {
@@ -80,7 +80,7 @@ func (a *App) syncHosts(cfg *Config, sites []Site, force, viaDNS bool) error {
 			return err
 		}
 		if !force && a.hostsDeclined == next {
-			return errors.New("hosts file not updated: administrator rights are needed (use \"Sync hosts\" or run DevStack as administrator)")
+			return errors.New("hosts file not updated: administrator rights are needed (use \"Sync hosts\" or run Omni Web Server as administrator)")
 		}
 		if err := elevatedWriteHosts(path, next); err != nil {
 			a.hostsDeclined = next

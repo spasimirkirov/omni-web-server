@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const appVersion = "1.0.0"
+const appVersion = "1.1.0"
 
 type App struct {
 	root string
@@ -44,6 +44,9 @@ type App struct {
 
 	apache   *Proc
 	mysql    *Proc
+	mailpit  *Proc
+	redis    *Proc
+	shares   map[string]*share
 	pools    map[string]*phpPool
 	tasks    *TaskManager
 	quit     chan struct{}
@@ -57,7 +60,9 @@ type phpPool struct {
 	iniHash    string
 }
 
-func NewApp(root string) (*App, error) {
+// NewApp loads (or creates) the configuration in root. www, when not empty,
+// sets the projects folder (the installer passes the user's choice).
+func NewApp(root, www string) (*App, error) {
 	a := &App{
 		root:        root,
 		phpWarnings: map[string][]string{},
@@ -67,12 +72,12 @@ func NewApp(root string) (*App, error) {
 		tasks:       NewTaskManager(),
 		quit:        make(chan struct{}),
 	}
-	for _, d := range []string{"www", "bin", "etc/apache/custom", "etc/php", "etc/mysql", "etc/ssl", "data", "logs", "tmp/sessions", "tmp/uploads", "tmp/downloads"} {
+	for _, d := range []string{"bin", "etc/apache/custom", "etc/php", "etc/mysql", "etc/ssl", "data", "logs", "tmp/sessions", "tmp/uploads", "tmp/downloads"} {
 		if err := os.MkdirAll(a.path(strings.Split(d, "/")...), 0o755); err != nil {
 			return nil, err
 		}
 	}
-	lf, err := os.OpenFile(a.path("logs", "devstack.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	lf, err := os.OpenFile(a.path("logs", "omni.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
 	}
@@ -82,11 +87,18 @@ func NewApp(root string) (*App, error) {
 		return nil, err
 	}
 	a.cfg = cfg
+	if www != "" {
+		if err := os.MkdirAll(www, 0o755); err != nil {
+			return nil, err
+		}
+		cfg.WWWDir = a.rel(absPath(www))
+	}
 	if fresh {
 		a.discoverSystem(cfg)
 		a.writeWelcomeProject()
 	}
 	a.discoverLocal(cfg)
+	a.discoverServices(cfg)
 	cfg.normalize()
 	if err := saveConfig(root, cfg); err != nil {
 		return nil, err
@@ -97,6 +109,20 @@ func NewApp(root string) (*App, error) {
 		Port:    cfg.HTTPPort,
 		Build:   func() (*exec.Cmd, error) { return a.apacheCmd(a.config()) },
 	})
+	a.mailpit = NewProc(ProcSpec{
+		Name:    "mailpit",
+		LogPath: a.path("logs", "mailpit.log"),
+		Port:    cfg.Mailpit.SMTPPort,
+		Build:   func() (*exec.Cmd, error) { return a.mailpitCmd(a.config()) },
+	})
+	a.redis = NewProc(ProcSpec{
+		Name:     "redis",
+		LogPath:  a.path("logs", "redis.log"),
+		Port:     cfg.Redis.Port,
+		Build:    func() (*exec.Cmd, error) { return a.redisCmd(a.config()) },
+		Graceful: func() error { return a.redisShutdown(a.config()) },
+	})
+	a.shares = map[string]*share{}
 	a.mysql = NewProc(ProcSpec{
 		Name:     "mysql",
 		LogPath:  a.path("logs", "mysql_console.log"),
@@ -193,7 +219,7 @@ func (a *App) discoverSystem(cfg *Config) {
 	}
 }
 
-// discoverLocal registers installs unpacked into bin/ (by DevStack or by hand).
+// discoverLocal registers installs unpacked into bin/ (by Omni Web Server or by hand).
 func (a *App) discoverLocal(cfg *Config) {
 	if cfg.Apache.Dir == "" && cfg.Apache.Bin == "" {
 		if dirs, _ := filepath.Glob(a.path("bin", "apache", "*", "bin", exeName("httpd"))); len(dirs) > 0 {
@@ -248,8 +274,10 @@ func versionInPath(p string) string {
 	return m
 }
 
-func (a *App) writeWelcomeProject() {
-	dir := a.path("www", "welcome")
+func (a *App) writeWelcomeProject() { a.writeWelcomeProjectIn(a.abs(a.cfg.WWWDir)) }
+
+func (a *App) writeWelcomeProjectIn(www string) {
+	dir := filepath.Join(www, "welcome")
 	if exists(dir) {
 		return
 	}
@@ -258,7 +286,7 @@ func (a *App) writeWelcomeProject() {
 }
 
 const welcomePHP = `<!doctype html>
-<html><head><meta charset="utf-8"><title>DevStack works</title>
+<html><head><meta charset="utf-8"><title>Omni Web Server works</title>
 <style>body{font-family:system-ui,sans-serif;max-width:720px;margin:60px auto;padding:0 16px;color:#1f2933}code{background:#eef2f6;padding:2px 6px;border-radius:4px}</style>
 </head><body>
 <h1>It works!</h1>
@@ -337,7 +365,7 @@ func (a *App) Apply(forceHosts bool) error {
 	required := requiredPHP(cfg, sites)
 	phpWarn := map[string][]string{}
 	for minor, p := range cfg.PHP {
-		ini := a.renderPHPIni(minor, p)
+		ini := a.renderPHPIni(cfg, minor, p)
 		if ch, err := writeIfChanged(a.phpIniPath(minor), []byte(ini)); err != nil {
 			warnings = append(warnings, err.Error())
 		} else if ch || a.phpWarningsFor(minor) == nil {
@@ -347,6 +375,7 @@ func (a *App) Apply(forceHosts bool) error {
 		}
 	}
 	a.writeShims(cfg)
+	warnings = append(warnings, a.syncDiscovery(cfg)...)
 	if webWanted {
 		for _, minor := range required {
 			if err := a.ensurePool(cfg, minor); err != nil {
@@ -545,6 +574,17 @@ func (a *App) StartAll() error {
 			errs = append(errs, "MySQL: "+err.Error())
 		}
 	}
+	for _, x := range []struct {
+		name string
+		p    *Proc
+		bin  string
+	}{{"Mailpit", a.mailpit, a.mailpitBin(cfg)}, {"Redis", a.redis, a.redisBin(cfg)}} {
+		if installed(x.bin) {
+			if err := x.p.Start(); err != nil {
+				errs = append(errs, x.name+": "+err.Error())
+			}
+		}
+	}
 	if err := a.StartWeb(); err != nil {
 		errs = append(errs, "Apache: "+err.Error())
 	}
@@ -556,12 +596,14 @@ func (a *App) StartAll() error {
 
 func (a *App) StopAll() error {
 	var wg sync.WaitGroup
-	var e1, e2 error
-	wg.Add(2)
-	go func() { defer wg.Done(); e1 = a.StopWeb() }()
-	go func() { defer wg.Done(); e2 = a.StopMySQL() }()
+	errs := make([]error, 4)
+	for i, stop := range []func() error{a.StopWeb, a.StopMySQL, a.mailpit.Stop, a.redis.Stop} {
+		wg.Add(1)
+		go func(i int, stop func() error) { defer wg.Done(); errs[i] = stop() }(i, stop)
+	}
 	wg.Wait()
-	return errors.Join(e1, e2)
+	a.stopAllShares()
+	return errors.Join(errs...)
 }
 
 // watch rescans the www folder periodically so new projects get vhosts.
@@ -578,6 +620,8 @@ func (a *App) watch() {
 			}
 			a.apache.refresh()
 			a.mysql.refresh()
+			a.mailpit.refresh()
+			a.redis.refresh()
 		}
 	}
 }

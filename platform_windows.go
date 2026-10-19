@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"unicode/utf16"
@@ -66,8 +67,8 @@ var (
 	jobHandle              uintptr
 )
 
-// initProcessGroup puts DevStack in a job object that kills every child
-// (Apache, php-cgi, mysqld) when DevStack exits, even if it is closed abruptly.
+// initProcessGroup puts Omni Web Server in a job object that kills every child
+// (Apache, php-cgi, mysqld) when Omni Web Server exits, even if it is closed abruptly.
 func initProcessGroup() {
 	h, _, _ := procCreateJobObject.Call(0, 0)
 	if h == 0 {
@@ -123,7 +124,7 @@ func openTerminal(dir string, env []string) error {
 	// Raw command line: start's first quoted argument is the window title and
 	// Go's argument quoting would turn it into the program name.
 	cmd := exec.Command("cmd.exe")
-	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: fmt.Sprintf(`cmd.exe /C start "DevStack" /D "%s" cmd.exe /K`, dir)}
+	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: fmt.Sprintf(`cmd.exe /C start "Omni" /D "%s" cmd.exe /K`, dir)}
 	cmd.Env = env
 	return cmd.Start()
 }
@@ -136,7 +137,7 @@ func elevatedWriteHosts(path, content string) error {
 	if err != nil {
 		return err
 	}
-	tmp := filepath.Join(os.TempDir(), "devstack-hosts.txt")
+	tmp := filepath.Join(os.TempDir(), "omni-hosts.txt")
 	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
 		return err
 	}
@@ -185,13 +186,50 @@ func portOwner(port int) string {
 	return ""
 }
 
+// addToUserPath prepends dir to the user's PATH (registry HKCU\Environment);
+// Windows broadcasts the change so new terminals and IDEs pick it up.
 func addToUserPath(dir string) error {
-	ps := fmt.Sprintf(`$d=%s; $p=[Environment]::GetEnvironmentVariable('Path','User'); if (-not $p) {$p=''}; if (($p -split ';') -notcontains $d) { [Environment]::SetEnvironmentVariable('Path', ($d + ';' + $p).TrimEnd(';'), 'User') }`, psQuote(dir))
-	out, err := hiddenCommand("powershell", "-NoProfile", "-NonInteractive", "-Command", ps).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%v: %s", err, out)
+	return runPowerShell(fmt.Sprintf(`$d=%s; $p=[Environment]::GetEnvironmentVariable('Path','User'); if (-not $p) {$p=''}
+if (($p -split ';') -notcontains $d) { [Environment]::SetEnvironmentVariable('Path', ($d + ';' + $p).TrimEnd(';'), 'User') }`, psQuote(dir)), false)
+}
+
+func removeFromUserPath(dir string) error {
+	return runPowerShell(fmt.Sprintf(`$d=%s; $p=[Environment]::GetEnvironmentVariable('Path','User')
+if ($p -and (($p -split ';') -contains $d)) { [Environment]::SetEnvironmentVariable('Path', ((($p -split ';') | Where-Object { $_ -and $_ -ne $d }) -join ';'), 'User') }`, psQuote(dir)), false)
+}
+
+const registryKey = `HKCU:\Software\OmniWebServer`
+
+// writeRegistry replaces HKCU\Software\OmniWebServer with the given values and
+// sets the OMNI_HOME user variable, so IDEs and scripts can find the stack.
+func writeRegistry(vals map[string]map[string]string) error {
+	var b strings.Builder
+	// Replace the subkeys (PHP versions come and go) but keep values other tools
+	// wrote on the main key, such as the installer's language choice.
+	fmt.Fprintf(&b, "$ErrorActionPreference='Stop'\nGet-ChildItem -Path %s -ErrorAction SilentlyContinue | Remove-Item -Recurse\n", psQuote(registryKey))
+	keys := make([]string, 0, len(vals))
+	for k := range vals {
+		keys = append(keys, k)
 	}
-	return nil
+	sort.Strings(keys)
+	for _, k := range keys {
+		path := registryKey
+		if k != "" {
+			path += `\` + k
+		}
+		fmt.Fprintf(&b, "New-Item -Path %s -Force | Out-Null\n", psQuote(path))
+		for n, v := range vals[k] {
+			fmt.Fprintf(&b, "New-ItemProperty -Path %s -Name %s -Value %s -PropertyType String -Force | Out-Null\n", psQuote(path), psQuote(n), psQuote(v))
+		}
+	}
+	if home := vals[""]["InstallDir"]; home != "" {
+		fmt.Fprintf(&b, "[Environment]::SetEnvironmentVariable('OMNI_HOME', %s, 'User')\n", psQuote(home))
+	}
+	return runPowerShell(b.String(), false)
+}
+
+func removeRegistry() error {
+	return runPowerShell(fmt.Sprintf("Remove-Item -Path %s -Recurse -ErrorAction SilentlyContinue\n[Environment]::SetEnvironmentVariable('OMNI_HOME', $null, 'User')", psQuote(registryKey)), false)
 }
 
 // missingRuntimes reports a missing Visual C++ runtime, needed by Apache, PHP and MySQL builds.
@@ -207,11 +245,11 @@ func missingRuntimes() []string {
 
 var errResolverUnsupported = errors.New("unsupported")
 
-const nrptComment = "DevStack"
+const nrptComment = "OmniWebServer"
 
 func resolverKind() string { return "nrpt" }
 
-// currentResolverRule returns the namespace of DevStack's NRPT rule ("" if none).
+// currentResolverRule returns the namespace of Omni Web Server's NRPT rule ("" if none).
 // Reading the table does not need administrator rights.
 func currentResolverRule() string {
 	ps := fmt.Sprintf(`Get-DnsClientNrptRule | Where-Object { $_.Comment -eq '%s' } | Select-Object -First 1 -ExpandProperty Namespace`, nrptComment)
@@ -222,7 +260,7 @@ func currentResolverRule() string {
 	return strings.TrimSpace(string(out))
 }
 
-// applyResolverRule replaces DevStack's NRPT rule so that only names under
+// applyResolverRule replaces Omni Web Server's NRPT rule so that only names under
 // namespace (".local") are resolved by the DNS server on 127.0.0.1. An empty
 // namespace removes the rule.
 func applyResolverRule(namespace string, port int) error {

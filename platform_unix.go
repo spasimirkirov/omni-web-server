@@ -56,7 +56,7 @@ func openTerminal(dir string, env []string) error {
 }
 
 func elevatedWriteHosts(path, content string) error {
-	return fmt.Errorf("permission denied writing %s: run DevStack as root", path)
+	return fmt.Errorf("permission denied writing %s: run Omni Web Server as root", path)
 }
 
 func flushDNS() {}
@@ -74,9 +74,15 @@ func portOwner(port int) string {
 	return ""
 }
 
-func addToUserPath(dir string) error {
-	return fmt.Errorf("add %s to PATH in your shell profile", dir)
-}
+// PATH and registry integration are Windows features; on Unix put bin/shims
+// on PATH in your shell profile.
+func addToUserPath(dir string) error { return nil }
+
+func removeFromUserPath(dir string) error { return nil }
+
+func writeRegistry(map[string]map[string]string) error { return nil }
+
+func removeRegistry() error { return nil }
 
 func missingRuntimes() []string { return nil }
 
@@ -96,7 +102,7 @@ func applyResolverRule(namespace string, port int) error {
 	return errResolverUnsupported
 }
 
-const unixCAPath = "/usr/local/share/ca-certificates/devstack-ca.crt"
+const unixCAPath = "/usr/local/share/ca-certificates/omni-ca.crt"
 
 // trustCA installs the CA into the system store (Debian/Ubuntu layout).
 // Browsers with their own NSS store (Firefox/Chrome on Linux) need it imported there too.

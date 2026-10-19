@@ -21,7 +21,7 @@ import (
 	"time"
 )
 
-const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 DevStack/" + appVersion
+const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 OmniWebServer/" + appVersion
 
 var versionRe = regexp.MustCompile(`\d+\.\d+\.\d+`)
 
@@ -292,7 +292,7 @@ func phpArchiveURL(version string) string {
 
 func (a *App) installPHP(t *Task, want, customURL string) error {
 	if runtime.GOOS != "windows" && customURL == "" {
-		return errors.New("automatic PHP downloads are Windows builds; on Linux install php-cgi with your package manager (DevStack detects it)")
+		return errors.New("automatic PHP downloads are Windows builds; on Linux install php-cgi with your package manager (Omni Web Server detects it)")
 	}
 	u, sha, version := customURL, "", want
 	if u == "" {
@@ -300,6 +300,9 @@ func (a *App) installPHP(t *Task, want, customURL string) error {
 		cat, err := phpCatalog()
 		if err != nil {
 			return err
+		}
+		if (want == "" || want == "latest") && len(cat) > 0 {
+			want = cat[0].Minor // newest release line
 		}
 		for _, r := range cat {
 			if r.Minor == want || r.Version == want {
@@ -579,4 +582,52 @@ func (a *App) installAdminer(t *Task) error {
 		}
 		return nil
 	})
+}
+
+// pendingOrder installs dependencies first (Composer needs PHP).
+var pendingOrder = []string{"apache", "php", "mysql", "mariadb", "composer", "node", "mailpit", "redis", "adminer"}
+
+func pendingRank(item string) int {
+	for i, p := range pendingOrder {
+		if strings.HasPrefix(item, p) {
+			return i
+		}
+	}
+	return len(pendingOrder)
+}
+
+// runPendingInstalls downloads the components picked in the installer, one at
+// a time, and removes each from the queue once it is done (or has failed, so
+// a broken download does not block every start; it can be retried from the UI).
+func (a *App) runPendingInstalls() {
+	items := append([]string(nil), a.config().PendingInstalls...)
+	sort.SliceStable(items, func(i, j int) bool { return pendingRank(items[i]) < pendingRank(items[j]) })
+	for _, item := range items {
+		component, version, _ := strings.Cut(item, ":") // "php:8.3", "tool:git"
+		t, err := a.startInstall(component, version, "")
+		if err != nil {
+			a.log.Printf("first-start install %s: %v", item, err)
+		} else {
+			for {
+				v := t.View()
+				if v.Status != "running" {
+					if v.Status == "error" {
+						a.log.Printf("first-start install %s failed: %s", item, v.Error)
+					}
+					break
+				}
+				time.Sleep(500 * time.Millisecond)
+			}
+		}
+		_ = a.update(func(c *Config) error {
+			var rest []string
+			for _, p := range c.PendingInstalls {
+				if p != item {
+					rest = append(rest, p)
+				}
+			}
+			c.PendingInstalls = rest
+			return nil
+		})
+	}
 }

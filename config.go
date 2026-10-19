@@ -12,9 +12,9 @@ import (
 	"strings"
 )
 
-const configFile = "devstack.json"
+const configFile = "omni.json"
 
-// Config is the persisted state of the stack (devstack.json in the root folder).
+// Config is the persisted state of the stack (omni.json in the root folder).
 // Paths may be relative to the root folder so the whole stack stays portable.
 type Config struct {
 	DashboardPort int    `json:"dashboard_port"`
@@ -32,14 +32,43 @@ type Config struct {
 	HTTPSPort int    `json:"https_port"`
 	HostsFile string `json:"hosts_file,omitempty"`
 	// Autostart starts Apache/PHP/MySQL when the dashboard starts.
-	Autostart   bool   `json:"autostart"`
-	OpenBrowser bool   `json:"open_browser"`
-	DefaultPHP  string `json:"default_php"`
+	Autostart   bool `json:"autostart"`
+	OpenBrowser bool `json:"open_browser"`
+	// AddToPath puts bin/shims (php, composer, node, mysql, ...) on the user PATH.
+	AddToPath  bool   `json:"add_to_path"`
+	DefaultPHP string `json:"default_php"`
 
 	PHP    map[string]*PHPInstall `json:"php"`
 	Apache ApacheConfig           `json:"apache"`
 	MySQL  MySQLConfig            `json:"mysql"`
 	Sites  map[string]*SiteConfig `json:"sites"`
+
+	// PendingInstalls are components chosen in the installer, downloaded on first start.
+	PendingInstalls []string `json:"pending_installs,omitempty"`
+
+	Mailpit MailpitConfig `json:"mailpit"`
+	Redis   RedisConfig   `json:"redis"`
+	Node    NodeConfig    `json:"node"`
+}
+
+// MailpitConfig: local SMTP server that catches all outgoing mail, with a web inbox.
+type MailpitConfig struct {
+	Dir      string `json:"dir,omitempty"`
+	Bin      string `json:"bin,omitempty"`
+	SMTPPort int    `json:"smtp_port"`
+	UIPort   int    `json:"ui_port"`
+}
+
+type RedisConfig struct {
+	Dir  string `json:"dir,omitempty"`
+	Bin  string `json:"bin,omitempty"`
+	Port int    `json:"port"`
+}
+
+// NodeConfig maps installed Node.js versions ("22.11.0") to their folders.
+type NodeConfig struct {
+	Versions map[string]string `json:"versions,omitempty"`
+	Default  string            `json:"default,omitempty"`
 }
 
 // PHPInstall is one PHP version, keyed by "major.minor" in Config.PHP.
@@ -93,6 +122,7 @@ func defaultConfig() *Config {
 		ManageHosts:   true,
 		Autostart:     true,
 		OpenBrowser:   true,
+		AddToPath:     true,
 		PHP:           map[string]*PHPInstall{},
 		Sites:         map[string]*SiteConfig{},
 		MySQL:         MySQLConfig{Port: 3306},
@@ -149,6 +179,26 @@ func (c *Config) normalize() {
 	}
 	if c.HTTPPort == 0 {
 		c.HTTPPort = 80
+	}
+	if c.Mailpit.SMTPPort == 0 {
+		c.Mailpit.SMTPPort = 1025
+	}
+	if c.Mailpit.UIPort == 0 {
+		c.Mailpit.UIPort = 8025
+	}
+	if c.Redis.Port == 0 {
+		c.Redis.Port = 6379
+	}
+	if c.Node.Versions == nil {
+		c.Node.Versions = map[string]string{}
+	}
+	if _, ok := c.Node.Versions[c.Node.Default]; !ok {
+		c.Node.Default = ""
+		for v := range c.Node.Versions {
+			if c.Node.Default == "" || compareVersions(v, c.Node.Default) > 0 {
+				c.Node.Default = v
+			}
+		}
 	}
 	if c.HTTPSPort == 0 {
 		c.HTTPSPort = 443

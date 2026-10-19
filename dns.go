@@ -275,7 +275,7 @@ func (a *App) syncDNS(cfg *Config, force bool) []string {
 	}
 	if resolverKind() != "manual" && *a.resolverState != desired {
 		if !force && a.resolverDeclined == desired {
-			warnings = append(warnings, "Wildcard DNS: the resolver rule needs administrator rights (use \"Apply DNS rule\" in Settings or run DevStack as administrator)")
+			warnings = append(warnings, "Wildcard DNS: the resolver rule needs administrator rights (use \"Apply DNS rule\" in Settings or run Omni Web Server as administrator)")
 		} else if err := applyResolverRule(desired, cfg.DNSPort); err != nil {
 			a.resolverDeclined = desired
 			if err != errResolverUnsupported {

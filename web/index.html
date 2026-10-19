@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DevStack</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M9 10h14M9 16h14M9 22h9' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<title>Omni Web Server</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" href="/favicon-48x48.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
 :root {
   --bg: #f5f7fa; --panel: #ffffff; --panel-2: #f0f3f7; --border: #dfe4ea; --text: #1d2733; --muted: #64707d;
@@ -121,11 +123,12 @@ dialog h3 { margin: 0; font-size: 16px; }
 <body>
 <header>
   <div class="bar">
-    <div class="brand"><span class="logo"><svg width="14" height="14" viewBox="0 0 32 32"><path d="M6 8h20M6 16h20M6 24h13" stroke="#fff" stroke-width="4" stroke-linecap="round"/></svg></span>DevStack</div>
+    <div class="brand"><img src="/favicon-48x48.png" width="24" height="24" alt="">Omni Web Server</div>
     <nav id="nav">
       <button data-tab="overview" class="active">Overview</button>
       <button data-tab="php">PHP</button>
       <button data-tab="db">Databases</button>
+      <button data-tab="tools">Tools</button>
       <button data-tab="logs">Logs</button>
       <button data-tab="settings">Settings</button>
     </nav>
@@ -139,6 +142,7 @@ dialog h3 { margin: 0; font-size: 16px; }
   <section id="tab-overview"></section>
   <section id="tab-php" hidden></section>
   <section id="tab-db" hidden></section>
+  <section id="tab-tools" hidden></section>
   <section id="tab-logs" hidden></section>
   <section id="tab-settings" hidden></section>
 </main>
@@ -156,7 +160,7 @@ const enc = encodeURIComponent;
 
 async function api(method, path, body) {
   const res = await fetch(path, {
-    method, headers: { "X-DevStack": "1", "Content-Type": "application/json" },
+    method, headers: { "X-Omni": "1", "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
@@ -224,20 +228,26 @@ function svcCard(s) {
   const running = st === "running" || st === "starting" || st === "restarting";
   let body;
   if (!s.installed) {
-    const comp = s.name === "mysql" ? "mysql" : "apache";
-    body = `<div class="meta">Not installed</div>
+    const comp = s.name;
+    const buttons = {
+      mysql: `<button class="btn primary" data-install="mysql">Install MySQL 8.4</button><button class="btn" data-install="mariadb">Install MariaDB 11.4</button>`,
+      apache: `<button class="btn primary" data-install="apache">Install Apache</button>`,
+      mailpit: `<button class="btn primary" data-install="mailpit">Install Mailpit</button>`,
+      redis: `<button class="btn primary" data-install="redis">Install Redis</button>`,
+    };
+    const blurb = { mailpit: "Catches every email your apps send, with a web inbox.", redis: "Cache, queues and sessions for Laravel." }[s.name];
+    body = `<div class="meta">Not installed${blurb ? " · " + esc(blurb) : ""}</div>
       <div class="actions">
-        ${S.platform === "windows" ? (s.name === "mysql"
-          ? `<button class="btn primary" data-install="mysql">Install MySQL 8.4</button><button class="btn" data-install="mariadb">Install MariaDB 11.4</button>`
-          : `<button class="btn primary" data-install="apache">Install Apache</button>`) : `<span class="muted small">Install it with your package manager; DevStack detects it on first run.</span>`}
+        ${S.platform === "windows" ? buttons[s.name] : `<span class="muted small">Install it with your package manager; Omni Web Server detects it on first run.</span>`}
         <button class="btn" data-install-url="${comp}">From URL…</button>
       </div>`;
   } else {
-    body = `<div class="meta">${esc(s.version || "")} · port ${s.port}${s.status.pid ? " · PID " + s.status.pid : ""}</div>
+    body = `<div class="meta">${esc(s.version || "")} · ${s.info ? esc(s.info) : "port " + s.port}${s.status.pid ? " · PID " + s.status.pid : ""}</div>
       <div class="actions">
         ${running ? `<button class="btn" data-svc="${s.name}" data-a="restart">Restart</button><button class="btn" data-svc="${s.name}" data-a="stop">Stop</button>`
                   : `<button class="btn primary" data-svc="${s.name}" data-a="start">Start</button>`}
-        <button class="btn" data-log="${s.name === "mysql" ? "mysql_error" : "apache_error"}">Log</button>
+        ${s.url && st === "running" ? `<a class="btn" href="${esc(s.url)}" target="_blank" rel="noopener">Open inbox</a>` : ""}
+        <button class="btn" data-log="${{ mysql: "mysql_error", apache: "apache_error" }[s.name] || s.name}">Log</button>
       </div>`;
   }
   return `<div class="panel svc">
@@ -286,13 +296,17 @@ function siteRow(s) {
   return `<tr>
     <td><label class="switch" title="${s.enabled ? "Disable" : "Enable"} vhost"><input type="checkbox" data-site-toggle="${esc(s.name)}" ${s.enabled ? "checked" : ""} ${s.missing ? "disabled" : ""}><span></span></label></td>
     <td><strong>${esc(s.name)}</strong> <span class="badge ${esc(s.framework)}">${esc(s.framework)}</span>${s.external ? ` <span class="badge" title="${esc(s.path)}">external</span>` : ""}
-      ${s.warning ? `<div class="err">${esc(s.warning)}</div>` : ""}</td>
+      ${s.warning ? `<div class="err">${esc(s.warning)}</div>` : ""}
+      ${S.shares && S.shares[s.name] ? `<div class="small">Public: <a href="${esc(S.shares[s.name])}" target="_blank" rel="noopener">${esc(S.shares[s.name])}</a></div>` : (S.shares && s.name in S.shares ? `<div class="small muted">Starting tunnel…</div>` : "")}</td>
     <td>${s.enabled && !s.missing ? `<a href="${esc(hostURL(s.host))}" target="_blank" rel="noopener">${S.settings.ssl && S.ssl.ca && !S.ssl.error ? lockIcon() : ""}${esc(s.host)}</a>` : `<span class="muted">${esc(s.host)}</span>`}</td>
     <td><select data-site-php="${esc(s.name)}" aria-label="PHP version for ${esc(s.name)}">${phpOptions(s.php_setting)}</select></td>
     <td class="path mono" title="${esc(s.docroot)}">${esc(rel)}${s.docroot_override ? ` <span class="badge">custom</span>` : ""}</td>
     <td style="white-space:nowrap;text-align:right">
       <button class="btn small" data-site-root="${esc(s.name)}" title="Change document root">Root</button>
       <button class="btn small" data-site-open="${esc(s.name)}" data-what="folder" title="Open folder">Folder</button>
+      ${s.enabled && !s.missing ? (S.shares && s.name in S.shares
+        ? `<button class="btn small" data-share="${esc(s.name)}" data-on="0" title="Stop sharing">Stop share</button>`
+        : `<button class="btn small" data-share="${esc(s.name)}" data-on="1" title="Public https URL through Cloudflare">Share</button>`) : ""}
       ${S.platform === "windows" ? `<button class="btn small" data-site-open="${esc(s.name)}" data-what="terminal" title="Terminal with PHP on PATH">Terminal</button>` : ""}
       ${s.external ? `<button class="btn small danger" data-site-remove="${esc(s.name)}">Remove</button>` : ""}
     </td>
@@ -314,8 +328,7 @@ function renderPHP(force) {
       <button class="btn small" data-act="php-add">Add existing folder…</button></h2>
     ${vs.length ? "" : `<div class="panel empty">No PHP installed yet.</div>`}
     ${vs.slice().reverse().map(phpVersionCard).join("")}
-    ${vs.length ? `<p class="muted small">CLI shims (<code>php</code>, <code>php83</code>, …) that use the same php.ini are in <code>${esc(S.shims_dir)}</code>.
-      ${S.platform === "windows" ? `<button class="btn small" data-act="add-path">Add to my PATH</button>` : ""}</p>` : ""}`;
+    ${vs.length ? `<p class="muted small"><code>php</code>, <code>php83</code>, … in any terminal use the same php.ini as the web server (see the Tools tab).</p>` : ""}`;
   const f = $("#ext-filter-" + CSS.escape(window._phpFilterFocus || ""), el);
   if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); }
 }
@@ -331,6 +344,7 @@ function phpVersionCard(p) {
       <span class="badge">${p.in_use ? `${p.running}/${p.workers} workers running` : "not in use"}</span>
       <span class="spacer" style="flex:1"></span>
       <label class="small muted">Workers <input type="number" min="1" max="9" value="${p.workers}" style="width:60px" data-php-workers="${esc(p.minor)}"></label>
+      ${p.extensions.some(e => e.name === "xdebug") ? "" : `<button class="btn small" data-install="xdebug" data-version="${esc(p.minor)}">Install Xdebug</button>`}
       <button class="btn small" data-log="php${esc(p.minor.replace(".", ""))}_error">Error log</button>
       ${p.removable ? `<button class="btn small danger" data-php-remove="${esc(p.minor)}">Uninstall</button>` : ""}
     </div>
@@ -381,6 +395,53 @@ async function renderDB() {
         ${adminer ? `<a class="btn" href="${esc(hostURL(adminer.host))}" target="_blank" rel="noopener">Open Adminer</a>` : `<button class="btn" data-install="adminer">Install Adminer</button>`}
       </div>
     </div>`;
+}
+
+let toolsCache = null;
+async function renderTools(reload) {
+  const el = $("#tab-tools");
+  if (reload || !toolsCache) { try { toolsCache = await api("GET", "/api/tools"); } catch (e) { toolsCache = []; } }
+  const T = S.tools, win = S.platform === "windows";
+  const cats = {};
+  for (const t of toolsCache) (cats[t.category] = cats[t.category] || []).push(t);
+  el.innerHTML = `
+    <h2>Bundled with Omni Web Server</h2>
+    <div class="grid">
+      <div class="panel svc">
+        <div class="top"><span class="dot ${T.composer ? "running" : ""}"></span><span class="name">Composer</span><span class="state">${T.composer ? esc(T.composer) : "not installed"}</span></div>
+        <div class="meta">PHP package manager. <code>composer</code> runs with your default PHP and its php.ini.</div>
+        <div class="actions">${T.composer ? `<button class="btn" data-install="composer">Update</button>` : `<button class="btn primary" data-install="composer">Install Composer</button>`}</div>
+      </div>
+      <div class="panel svc">
+        <div class="top"><span class="dot ${T.node_default ? "running" : ""}"></span><span class="name">Node.js</span><span class="state">${T.node_default ? "v" + esc(T.node_default) : "not installed"}</span></div>
+        <div class="meta">For Vite, npm and npx. Several versions can be installed; the default is on PATH.</div>
+        ${T.node && T.node.length > 1 ? `<div class="row"><label class="small muted">Default</label><select data-node-default>${T.node.map(v => `<option ${v === T.node_default ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></div>` : ""}
+        <div class="actions">${win ? `<button class="btn ${T.node_default ? "" : "primary"}" data-install="node" data-version="lts">Install latest LTS</button><button class="btn" data-act="node-version">Other version…</button>` : `<span class="muted small">Use your package manager or fnm on this OS.</span>`}</div>
+      </div>
+      <div class="panel svc">
+        <div class="top"><span class="dot"></span><span class="name">Xdebug</span><span class="state">per PHP version</span></div>
+        <div class="meta">Step debugging for VS Code / PhpStorm (port 9003, start with <code>XDEBUG_TRIGGER</code> or the browser extension).</div>
+        <div class="actions"><button class="btn" data-goto="php">Open the PHP tab</button></div>
+      </div>
+    </div>
+    <h2>Terminal &amp; IDE access</h2>
+    <div class="panel pad"><div class="form-grid">
+      <label>Add to PATH</label><div><label class="switch"><input type="checkbox" data-setting="add_to_path" ${S.settings.add_to_path ? "checked" : ""}><span></span></label>
+        <div class="hint">Puts <code class="mono">${esc(S.shims_dir)}</code> on your user PATH, so terminals, PhpStorm and VS Code find:</div>
+        <div class="mono small" style="margin-top:4px">${(T.shims || []).map(esc).join(" · ") || "nothing yet"}</div></div>
+      ${win ? `<label>Registry</label><div class="small"><code>HKCU\\Software\\OmniWebServer</code> lists the install folder, www folder and the path of every PHP version, MySQL, Apache, Redis, Mailpit and Node.js. <code>%OMNI_HOME%</code> points to the install folder.</div>` : ""}
+    </div></div>
+    ${Object.entries(cats).map(([cat, list]) => `
+      <h2>${esc(cat)}</h2>
+      <div class="panel table-wrap"><table><tbody>
+        ${list.map(t => `<tr>
+          <td style="width:34%"><strong>${esc(t.name)}</strong><div class="muted small">${esc(t.description)}</div></td>
+          <td class="path mono" title="${esc(t.path || "")}">${t.installed ? `<span class="dot running" style="display:inline-block;margin-right:6px"></span>${esc(t.path)}` : `<span class="muted">not installed</span>`}</td>
+          <td style="text-align:right;white-space:nowrap">${t.installed ? "" : (win ? `<button class="btn small primary" data-install="tool" data-version="${esc(t.id)}">Install</button>` : "")}
+            <a class="btn small" href="${esc(t.url)}" target="_blank" rel="noopener">Website</a></td>
+        </tr>`).join("")}
+      </tbody></table></div>`).join("")}
+    <p class="muted small">Windows apps are installed with winget (App Installer, built into Windows 11). <button class="btn small" data-act="tools-refresh">Check again</button></p>`;
 }
 
 let logName = "apache_error", logTimer = null;
@@ -448,7 +509,7 @@ function renderSettings() {
     <div class="panel pad"><div class="form-grid">
       ${sw("auto_vhost", "Auto vhost", "New folders in www get an enabled vhost automatically.")}
       ${sw("manage_hosts", "Manage hosts file", "Adds <code>127.0.0.1 project." + esc(st.tld) + "</code> lines to <code class=\"mono\">" + esc(S.hosts_file) + "</code>.")}
-      ${sw("wildcard_dns", "Wildcard DNS", "Every <code>*." + esc(st.tld) + "</code> name (also <code>api.blog." + esc(st.tld) + "</code>) resolves to this PC through DevStack's built-in DNS server" + (S.platform === "windows" ? ", so the hosts file no longer needs editing." : "."))}
+      ${sw("wildcard_dns", "Wildcard DNS", "Every <code>*." + esc(st.tld) + "</code> name (also <code>api.blog." + esc(st.tld) + "</code>) resolves to this PC through Omni Web Server's built-in DNS server" + (S.platform === "windows" ? ", so the hosts file no longer needs editing." : "."))}
       ${st.wildcard_dns ? `<label>DNS status</label><div>${dnsStatusHTML()}</div>` : ""}
       <label for="s-tld">Domain suffix</label><div><input type="text" id="s-tld" value="${esc(st.tld)}" style="width:120px"><div class="hint">Projects are served at name.${esc(st.tld)}</div></div>
       <label for="s-www">Projects folder</label><div><input type="text" class="wide mono" id="s-www" value="${esc(st.www_dir)}"></div>
@@ -456,7 +517,7 @@ function renderSettings() {
     </div></div>
     <h2>HTTPS</h2>
     <div class="panel pad"><div class="form-grid">
-      ${sw("ssl", "Enable HTTPS", "Every enabled site is also served at <code>https://name." + esc(st.tld) + "</code> (and its subdomains) with a certificate from DevStack's local CA.")}
+      ${sw("ssl", "Enable HTTPS", "Every enabled site is also served at <code>https://name." + esc(st.tld) + "</code> (and its subdomains) with a certificate from Omni Web Server's local CA.")}
       ${sslStatusHTML()}
     </div></div>
     <h2>Ports</h2>
@@ -465,14 +526,14 @@ function renderSettings() {
       <label for="s-https">Apache (HTTPS)</label><div><input type="number" id="s-https" value="${st.https_port}" style="width:110px"></div>
       <label for="s-mysql">MySQL</label><div><input type="number" id="s-mysql" value="${st.mysql_port}" style="width:110px"></div>
       <label for="s-dns">Wildcard DNS</label><div><input type="number" id="s-dns" value="${st.dns_port}" style="width:110px"><div class="hint">Windows requires 53.</div></div>
-      <label for="s-dash">Dashboard</label><div><input type="number" id="s-dash" value="${st.dashboard_port}" style="width:110px"><div class="hint">Takes effect after restarting DevStack.</div></div>
+      <label for="s-dash">Dashboard</label><div><input type="number" id="s-dash" value="${st.dashboard_port}" style="width:110px"><div class="hint">Takes effect after restarting Omni Web Server.</div></div>
       <label></label><div><button class="btn primary" data-act="save-ports">Save ports</button></div>
     </div></div>
     <h2>Startup</h2>
     <div class="panel pad"><div class="form-grid">
-      ${sw("autostart", "Start services", "Start Apache, PHP and MySQL when DevStack starts.")}
-      ${sw("open_browser", "Open dashboard", "Open this page in the browser when DevStack starts.")}
-      <label>DevStack</label><div class="row"><span class="mono small muted">${esc(S.root)} · v${esc(S.version)}</span><button class="btn danger" data-act="quit">Quit DevStack</button></div>
+      ${sw("autostart", "Start services", "Start Apache, PHP and MySQL when Omni Web Server starts.")}
+      ${sw("open_browser", "Open dashboard", "Open this page in the browser when Omni Web Server starts.")}
+      <label>Omni Web Server</label><div class="row"><span class="mono small muted">${esc(S.root)} · v${esc(S.version)}</span><button class="btn danger" data-act="quit">Quit Omni Web Server</button></div>
     </div></div>`;
 }
 
@@ -482,6 +543,7 @@ function render() {
   renderNotices();
   if (tab === "overview") renderOverview();
   if (tab === "php") renderPHP(false);
+  if (tab === "tools" && !(document.activeElement && document.activeElement.tagName === "SELECT")) renderTools(false);
 }
 
 async function refresh(force) {
@@ -490,7 +552,7 @@ async function refresh(force) {
     S = await api("GET", "/api/state");
     render();
   } catch (e) {
-    $("#notices").innerHTML = `<div class="notice error">Cannot reach DevStack: ${esc(e.message)}. Is it still running?</div>`;
+    $("#notices").innerHTML = `<div class="notice error">Cannot reach Omni Web Server: ${esc(e.message)}. Is it still running?</div>`;
   }
 }
 
@@ -501,9 +563,10 @@ function showTab(name) {
   if (name === "overview") renderOverview();
   if (name === "php") renderPHP(true);
   if (name === "db") renderDB();
+  if (name === "tools") renderTools(true);
   if (name === "logs") renderLogs();
   if (name === "settings") renderSettings();
-  try { localStorage.setItem("devstack-tab", name); } catch (e) {}
+  try { localStorage.setItem("omni-tab", name); } catch (e) {}
 }
 
 // ---------- dialogs ----------
@@ -560,7 +623,14 @@ document.addEventListener("click", async e => {
     if (d.tab) return showTab(d.tab);
     if (d.goto) return showTab(d.goto);
     if (d.svc) { await act("POST", `/api/services/${d.svc}/${d.a}`); if (tab === "db") renderDB(); return; }
-    if (d.install) return startInstall({ component: d.install });
+    if (d.install) return startInstall({ component: d.install, version: d.version || "" });
+    if (d.share) {
+      const on = d.on === "1";
+      if (on) toast("Starting a Cloudflare tunnel…");
+      const r = await act("POST", `/api/sites/${enc(d.share)}/share`, { on });
+      if (on && r && r.url) { try { await navigator.clipboard.writeText(r.url); toast("Public URL copied: " + r.url); } catch (e) { toast(r.url); } }
+      return;
+    }
     if (d.installUrl) return installDialog(d.installUrl);
     if (d.log) { logName = d.log; return showTab("logs"); }
     if (d.siteOpen) return act("POST", `/api/sites/${enc(d.siteOpen)}/open`, { what: d.what });
@@ -604,7 +674,12 @@ document.addEventListener("click", async e => {
         if (v) await act("POST", "/api/php/add", v, "PHP added").then(() => renderPHP(true));
         return;
       }
-      case "add-path": return act("POST", "/api/path/add", undefined, "Added to PATH: open a new terminal to use php");
+      case "tools-refresh": return renderTools(true);
+      case "node-version": {
+        const v = await dialog("Install Node.js", field("Version", "version", 'required placeholder="22, 20.18.1 or lts"'), "Install");
+        if (v) await startInstall({ component: "node", version: v.version });
+        return;
+      }
       case "db-create": {
         const v = await dialog("New database", field("Name", "name", 'required pattern="[A-Za-z0-9_$-]{1,64}"', "utf8mb4 / utf8mb4_unicode_ci"), "Create");
         if (v) { await act("POST", "/api/databases", v, "Created " + v.name); renderDB(); }
@@ -624,7 +699,7 @@ document.addEventListener("click", async e => {
         await act("POST", "/api/settings", { http_port: +$("#s-http").value, https_port: +$("#s-https").value, mysql_port: +$("#s-mysql").value, dns_port: +$("#s-dns").value, dashboard_port: +$("#s-dash").value }, "Ports saved");
         return renderSettings();
       }
-      case "quit": if (confirm("Stop all services and quit DevStack?")) await api("POST", "/api/quit"); return;
+      case "quit": if (confirm("Stop all services and quit Omni Web Server?")) await api("POST", "/api/quit"); return;
     }
   } catch (err) { /* reported by act() */ }
 });
@@ -635,7 +710,8 @@ document.addEventListener("change", async e => {
     if (d.siteToggle) return act("PATCH", `/api/sites/${enc(d.siteToggle)}`, { enabled: t.checked }, `${d.siteToggle}: vhost ${t.checked ? "enabled" : "disabled"}`);
     if (d.sitePhp !== undefined) { t.blur(); return act("PATCH", `/api/sites/${enc(d.sitePhp)}`, { php: t.value }, `${d.sitePhp} now uses PHP ${t.value || "default"}`); }
     if (d.ext) { await act("POST", `/api/php/${d.minor}/extensions`, { name: d.ext, enabled: t.checked }, `${d.ext} ${t.checked ? "enabled" : "disabled"} for PHP ${d.minor}`); return renderPHP(true); }
-    if (d.setting) { await act("POST", "/api/settings", { [d.setting]: t.checked }, "Saved"); return renderSettings(); }
+    if (d.setting) { await act("POST", "/api/settings", { [d.setting]: t.checked }, "Saved"); return tab === "tools" ? renderTools(false) : renderSettings(); }
+    if (d.nodeDefault !== undefined) { await act("POST", "/api/node/default", { version: t.value }, "Default Node.js: " + t.value); return renderTools(false); }
     if (t.id === "log-name") { logName = t.value; return loadLog(); }
     if (t.id === "log-follow") { clearInterval(logTimer); logTimer = t.checked ? setInterval(loadLog, 2000) : null; }
   } catch (err) {}
@@ -653,8 +729,8 @@ document.addEventListener("input", e => {
 (async () => {
   await refresh(true);
   let saved = "overview";
-  try { saved = localStorage.getItem("devstack-tab") || "overview"; } catch (e) {}
-  showTab(["overview", "php", "db", "logs", "settings"].includes(saved) ? saved : "overview");
+  try { saved = localStorage.getItem("omni-tab") || "overview"; } catch (e) {}
+  showTab(["overview", "php", "db", "tools", "logs", "settings"].includes(saved) ? saved : "overview");
   setInterval(() => refresh(false), 2000);
 })();
 </script>

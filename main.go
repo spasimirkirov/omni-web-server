@@ -1,4 +1,4 @@
-// DevStack is a portable local web server for PHP development: Apache with
+// Omni Web Server is a portable local web server for PHP development: Apache with
 // automatic *.local virtual hosts, several PHP versions side by side (each
 // project picks its own), toggleable PHP extensions and MySQL/MariaDB,
 // controlled from a web dashboard or the command line.
@@ -18,7 +18,7 @@ func main() {
 	os.Exit(runCLI(root, args))
 }
 
-// resolveRoot picks the DevStack folder: --root <dir>, $DEVSTACK_HOME, or the
+// resolveRoot picks the Omni Web Server folder: --root <dir>, $OMNI_HOME, or the
 // folder that contains the executable.
 func resolveRoot(args *[]string) string {
 	for i := 0; i < len(*args); i++ {
@@ -28,7 +28,7 @@ func resolveRoot(args *[]string) string {
 			return absPath(root)
 		}
 	}
-	if env := os.Getenv("DEVSTACK_HOME"); env != "" {
+	if env := os.Getenv("OMNI_HOME"); env != "" {
 		return absPath(env)
 	}
 	exe, err := os.Executable()

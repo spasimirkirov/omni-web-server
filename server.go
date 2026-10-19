@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
@@ -17,7 +18,7 @@ import (
 	"time"
 )
 
-//go:embed web/index.html
+//go:embed web/index.html web/favicon.ico web/favicon-48x48.png web/apple-touch-icon.png
 var webFS embed.FS
 
 type ServiceView struct {
@@ -27,7 +28,17 @@ type ServiceView struct {
 	Version   string     `json:"version"`
 	Port      int        `json:"port"`
 	Path      string     `json:"path"`
+	URL       string     `json:"url,omitempty"`
+	Info      string     `json:"info,omitempty"`
 	Status    ProcStatus `json:"status"`
+}
+
+type DevToolsView struct {
+	Composer     string   `json:"composer"` // version, "" when not installed
+	ComposerPath string   `json:"composer_path"`
+	Node         []string `json:"node"`
+	NodeDefault  string   `json:"node_default"`
+	Shims        []string `json:"shims"`
 }
 
 type ExtView struct {
@@ -55,21 +66,23 @@ type PHPView struct {
 }
 
 type StateView struct {
-	Version   string        `json:"version"`
-	Root      string        `json:"root"`
-	Platform  string        `json:"platform"`
-	Admin     bool          `json:"admin"`
-	Settings  SettingsView  `json:"settings"`
-	Services  []ServiceView `json:"services"`
-	Sites     []Site        `json:"sites"`
-	PHP       []PHPView     `json:"php"`
-	Tasks     []TaskView    `json:"tasks"`
-	Warnings  []string      `json:"warnings"`
-	WebOn     bool          `json:"web_on"`
-	ShimsDir  string        `json:"shims_dir"`
-	HostsFile string        `json:"hosts_file"`
-	DNS       dnsStatus     `json:"dns"`
-	SSL       sslStatus     `json:"ssl"`
+	Version   string            `json:"version"`
+	Root      string            `json:"root"`
+	Platform  string            `json:"platform"`
+	Admin     bool              `json:"admin"`
+	Settings  SettingsView      `json:"settings"`
+	Services  []ServiceView     `json:"services"`
+	Sites     []Site            `json:"sites"`
+	PHP       []PHPView         `json:"php"`
+	Tasks     []TaskView        `json:"tasks"`
+	Warnings  []string          `json:"warnings"`
+	WebOn     bool              `json:"web_on"`
+	ShimsDir  string            `json:"shims_dir"`
+	HostsFile string            `json:"hosts_file"`
+	DNS       dnsStatus         `json:"dns"`
+	SSL       sslStatus         `json:"ssl"`
+	Tools     DevToolsView      `json:"tools"`
+	Shares    map[string]string `json:"shares"`
 }
 
 type SettingsView struct {
@@ -81,6 +94,7 @@ type SettingsView struct {
 	AutoVhost     bool   `json:"auto_vhost"`
 	ManageHosts   bool   `json:"manage_hosts"`
 	WildcardDNS   bool   `json:"wildcard_dns"`
+	AddToPath     bool   `json:"add_to_path"`
 	DNSPort       int    `json:"dns_port"`
 	SSL           bool   `json:"ssl"`
 	HTTPSPort     int    `json:"https_port"`
@@ -127,7 +141,7 @@ func (a *App) State() StateView {
 		Settings: SettingsView{
 			DashboardPort: cfg.DashboardPort, HTTPPort: cfg.HTTPPort, MySQLPort: cfg.MySQL.Port,
 			TLD: cfg.TLD, WWWDir: a.abs(cfg.WWWDir), AutoVhost: cfg.AutoVhost, ManageHosts: cfg.ManageHosts,
-			WildcardDNS: cfg.WildcardDNS, DNSPort: cfg.DNSPort, SSL: cfg.SSL, HTTPSPort: cfg.HTTPSPort,
+			WildcardDNS: cfg.WildcardDNS, AddToPath: cfg.AddToPath, DNSPort: cfg.DNSPort, SSL: cfg.SSL, HTTPSPort: cfg.HTTPSPort,
 			Autostart: cfg.Autostart, OpenBrowser: cfg.OpenBrowser, DefaultPHP: cfg.DefaultPHP,
 			MySQLFlavor: cfg.MySQL.Flavor, HasRootPass: cfg.MySQL.RootPassword != "",
 		},
@@ -156,6 +170,39 @@ func (a *App) State() StateView {
 		Version: a.cachedVersion("mysql", func() string { return binVersion(mysqlBin, mysqlVersionRe, "--version") }),
 		Port:    cfg.MySQL.Port, Path: mysqlBin, Status: a.mysql.Status(),
 	})
+	mailpitBin := a.mailpitBin(cfg)
+	st.Services = append(st.Services, ServiceView{
+		Name: "mailpit", Title: "Mailpit", Installed: installed(mailpitBin),
+		Version: a.cachedVersion("mailpit", func() string { return binVersion(mailpitBin, mailpitVersionRe, "version") }),
+		Port:    cfg.Mailpit.SMTPPort, Path: mailpitBin, Status: a.mailpit.Status(),
+		URL:  fmt.Sprintf("http://localhost:%d/", cfg.Mailpit.UIPort),
+		Info: fmt.Sprintf("SMTP 127.0.0.1:%d · inbox on port %d", cfg.Mailpit.SMTPPort, cfg.Mailpit.UIPort),
+	})
+	redisBin := a.redisBin(cfg)
+	st.Services = append(st.Services, ServiceView{
+		Name: "redis", Title: "Redis", Installed: installed(redisBin),
+		Version: a.cachedVersion("redis", func() string { return binVersion(redisBin, redisVersionRe, "--version") }),
+		Port:    cfg.Redis.Port, Path: redisBin, Status: a.redis.Status(),
+	})
+	st.Tools = DevToolsView{NodeDefault: cfg.Node.Default}
+	if exists(a.composerPhar()) {
+		st.Tools.ComposerPath = a.composerPhar()
+		st.Tools.Composer = a.cachedVersion("composer", func() string {
+			if cli := a.phpCLI(cfg.PHP[cfg.DefaultPHP]); cfg.DefaultPHP != "" && cli != "" {
+				return binVersion(cli, composerVersionRe, a.composerPhar(), "--version", "--no-ansi")
+			}
+			return "installed"
+		})
+	}
+	for v := range cfg.Node.Versions {
+		st.Tools.Node = append(st.Tools.Node, v)
+	}
+	sort.Slice(st.Tools.Node, func(i, j int) bool { return compareVersions(st.Tools.Node[i], st.Tools.Node[j]) > 0 })
+	for n := range a.shims(cfg) {
+		st.Tools.Shims = append(st.Tools.Shims, n)
+	}
+	sort.Strings(st.Tools.Shims)
+	st.Shares = a.shareURLs()
 
 	required := requiredPHP(cfg, sites)
 	defaults := map[string]string{}
@@ -253,8 +300,8 @@ func guard(port int, next http.Handler) http.Handler {
 			http.Error(w, "forbidden host", http.StatusForbidden)
 			return
 		}
-		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Header.Get("X-DevStack") != "1" {
-			http.Error(w, "missing X-DevStack header", http.StatusForbidden)
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Header.Get("X-Omni") != "1" {
+			http.Error(w, "missing X-Omni header", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -269,6 +316,14 @@ func (a *App) routes() http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(b)
 	})
+	for _, f := range []string{"favicon.ico", "favicon-48x48.png", "apple-touch-icon.png"} {
+		f := f
+		mux.HandleFunc("GET /"+f, func(w http.ResponseWriter, r *http.Request) {
+			b, _ := webFS.ReadFile("web/" + f)
+			w.Header().Set("Cache-Control", "max-age=86400")
+			http.ServeContent(w, r, f, time.Time{}, bytes.NewReader(b))
+		})
+	}
 	mux.HandleFunc("GET /api/state", handle(func(r *http.Request) (any, error) { return a.State(), nil }))
 
 	mux.HandleFunc("POST /api/services/{name}/{action}", handle(func(r *http.Request) (any, error) {
@@ -469,11 +524,34 @@ func (a *App) routes() http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/x-x509-ca-cert")
-		w.Header().Set("Content-Disposition", `attachment; filename="devstack-ca.crt"`)
+		w.Header().Set("Content-Disposition", `attachment; filename="omni-ca.crt"`)
 		http.ServeFile(w, r, a.caCertPath())
 	})
-	mux.HandleFunc("POST /api/path/add", handle(func(r *http.Request) (any, error) {
-		return nil, addToUserPath(a.path("bin", "shims"))
+	mux.HandleFunc("GET /api/tools", handle(func(r *http.Request) (any, error) { return a.listTools(), nil }))
+	mux.HandleFunc("POST /api/node/default", handle(func(r *http.Request) (any, error) {
+		var body struct{ Version string }
+		if err := decode(r, &body); err != nil {
+			return nil, err
+		}
+		return nil, a.update(func(c *Config) error {
+			if _, ok := c.Node.Versions[body.Version]; !ok {
+				return badRequest("Node.js %s is not installed", body.Version)
+			}
+			c.Node.Default = body.Version
+			return nil
+		})
+	}))
+	mux.HandleFunc("POST /api/sites/{name}/share", handle(func(r *http.Request) (any, error) {
+		var body struct{ On bool }
+		if err := decode(r, &body); err != nil {
+			return nil, err
+		}
+		if !body.On {
+			a.stopShare(r.PathValue("name"))
+			return nil, nil
+		}
+		u, err := a.startShare(r.PathValue("name"))
+		return map[string]string{"url": u}, err
 	}))
 	mux.HandleFunc("POST /api/quit", handle(func(r *http.Request) (any, error) {
 		go func() { time.Sleep(200 * time.Millisecond); a.Shutdown() }()
@@ -485,9 +563,11 @@ func (a *App) routes() http.Handler {
 func (a *App) serviceAction(name, action string) error {
 	type fns struct{ start, stop func() error }
 	m := map[string]fns{
-		"all":    {a.StartAll, a.StopAll},
-		"apache": {a.StartWeb, a.StopWeb},
-		"mysql":  {a.StartMySQL, a.StopMySQL},
+		"all":     {a.StartAll, a.StopAll},
+		"apache":  {a.StartWeb, a.StopWeb},
+		"mysql":   {a.StartMySQL, a.StopMySQL},
+		"mailpit": {a.mailpit.Start, a.mailpit.Stop},
+		"redis":   {a.redis.Start, a.redis.Stop},
 	}
 	f, ok := m[name]
 	if !ok {
@@ -717,9 +797,6 @@ func (a *App) startInstall(component, version, u string) (*Task, error) {
 	var fn func(t *Task) error
 	switch component {
 	case "php":
-		if version == "" && u == "" {
-			return nil, badRequest("choose a PHP version")
-		}
 		title = "Install PHP " + version
 		fn = func(t *Task) error { return a.installPHP(t, version, u) }
 	case "apache":
@@ -731,6 +808,24 @@ func (a *App) startInstall(component, version, u string) (*Task, error) {
 	case "adminer":
 		title = "Install Adminer"
 		fn = func(t *Task) error { return a.installAdminer(t) }
+	case "composer":
+		title = "Install Composer"
+		fn = func(t *Task) error { return a.installComposer(t) }
+	case "node":
+		title = "Install Node.js " + version
+		fn = func(t *Task) error { return a.installNode(t, version) }
+	case "mailpit":
+		title = "Install Mailpit"
+		fn = func(t *Task) error { return a.installMailpit(t, u) }
+	case "redis":
+		title = "Install Redis"
+		fn = func(t *Task) error { return a.installRedis(t, u) }
+	case "xdebug":
+		title = "Install Xdebug for PHP " + version
+		fn = func(t *Task) error { return a.installXdebug(t, version) }
+	case "tool":
+		title = "Install " + version
+		fn = func(t *Task) error { return a.installTool(t, version) }
 	default:
 		return nil, badRequest("unknown component %q", component)
 	}
@@ -755,6 +850,8 @@ func (a *App) updateSettings(body map[string]json.RawMessage) error {
 				err = json.Unmarshal(raw, &c.SSL)
 			case "autostart":
 				err = json.Unmarshal(raw, &c.Autostart)
+			case "add_to_path":
+				err = json.Unmarshal(raw, &c.AddToPath)
 			case "open_browser":
 				err = json.Unmarshal(raw, &c.OpenBrowser)
 			case "tld":
@@ -821,23 +918,24 @@ func (a *App) Serve(openBrowser bool) error {
 	addr := fmt.Sprintf("127.0.0.1:%d", cfg.DashboardPort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("dashboard port %d is in use (is DevStack already running?): %v", cfg.DashboardPort, err)
+		return fmt.Errorf("dashboard port %d is in use (is Omni Web Server already running?): %v", cfg.DashboardPort, err)
 	}
 	srv := &http.Server{Handler: a.routes(), ReadHeaderTimeout: 10 * time.Second}
 	url := fmt.Sprintf("http://localhost:%d/", cfg.DashboardPort)
-	a.log.Printf("DevStack %s dashboard at %s (root %s)", appVersion, url, a.root)
+	a.log.Printf("Omni Web Server %s dashboard at %s (root %s)", appVersion, url, a.root)
 
 	if err := a.Apply(false); err != nil {
 		a.log.Printf("apply: %v", err)
 	}
 	go a.watch()
-	if cfg.Autostart {
-		go func() {
+	go func() {
+		a.runPendingInstalls()
+		if a.config().Autostart {
 			if err := a.StartAll(); err != nil {
 				a.log.Printf("autostart: %v", err)
 			}
-		}()
-	}
+		}
+	}()
 	if openBrowser && cfg.OpenBrowser {
 		go func() { time.Sleep(500 * time.Millisecond); _ = openURL(url) }()
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,15 +17,15 @@ import (
 	"time"
 )
 
-const usage = `DevStack %s - Apache + PHP + MySQL with automatic virtual hosts
+const usage = `Omni Web Server %s - Apache + PHP + MySQL with automatic virtual hosts
 
-Usage: devstack [command]
+Usage: omni [command]
 
   serve [--no-browser]           run the dashboard and services in the foreground (default)
-  start                          start DevStack in the background and all services
+  start                          start Omni Web Server in the background and all services
   stop                           stop Apache, PHP and MySQL
   restart [apache|mysql]         restart services
-  quit                           stop services and close DevStack
+  quit                           stop services and close Omni Web Server
   status                         show services and sites
   open                           open the dashboard in the browser
 
@@ -44,7 +45,19 @@ Usage: devstack [command]
   ext <ver> on|off <ext...>      enable or disable extensions
   ini <ver> <key>=<value>...     set php.ini values (empty value resets)
 
-  install apache|mysql|mariadb|adminer [url]   download a component
+  install apache|mysql|mariadb|adminer|mailpit|redis [url]   download a component
+  install composer               download Composer (shim: composer)
+  install node [ver]             download Node.js (latest LTS, "22" or "22.11.0")
+  install xdebug <php-ver>       download Xdebug for a PHP version and enable it
+  install tool <id>              install a Windows app with winget (see "tools")
+  tools                          list developer tools and whether they are installed
+  node [default <ver>]           list Node.js versions / choose the default
+  share <site> [off]             public https URL for a site (Cloudflare quick tunnel)
+
+  init [--www <folder>] [--install apache,php,mysql,...]
+                                 prepare settings without starting (used by the installer);
+                                 --install queues downloads for the first start
+  cleanup                        remove hosts entries, DNS rule, PATH entry and registry key
   db                             list databases
   db create|drop <name>          create or drop a database
   hosts                          rewrite the hosts file (and DNS rule) now
@@ -62,10 +75,14 @@ func runCLI(root string, args []string) int {
 		err = cmdServe(root, !hasFlag(rest, "--no-browser"))
 	case "hosts-apply": // internal: invoked elevated to replace the hosts file
 		err = cmdHostsApply(rest)
+	case "init":
+		err = cmdInit(root, rest)
+	case "cleanup":
+		err = cmdCleanup(root)
 	case "help", "-h", "--help", "/?":
 		fmt.Printf(usage, appVersion)
 	case "version", "--version":
-		fmt.Println("DevStack", appVersion)
+		fmt.Println("Omni Web Server", appVersion)
 	default:
 		c, cerr := newClient(root)
 		if cerr != nil {
@@ -92,7 +109,7 @@ func hasFlag(args []string, f string) bool {
 
 func cmdServe(root string, browser bool) error {
 	initProcessGroup()
-	app, err := NewApp(root)
+	app, err := NewApp(root, "")
 	if err != nil {
 		return err
 	}
@@ -102,8 +119,59 @@ func cmdServe(root string, browser bool) error {
 		<-sig
 		app.Shutdown()
 	}()
-	fmt.Printf("DevStack %s - dashboard: http://localhost:%d/  (Ctrl+C to stop)\n", appVersion, app.config().DashboardPort)
+	fmt.Printf("Omni Web Server %s - dashboard: http://localhost:%d/  (Ctrl+C to stop)\n", appVersion, app.config().DashboardPort)
 	return app.Serve(browser)
+}
+
+// cmdInit prepares the folder (settings, www) without starting services. The
+// installer runs it with the www folder the user picked.
+func cmdInit(root string, args []string) error {
+	www, install := "", ""
+	for i := 0; i+1 < len(args); i++ {
+		switch args[i] {
+		case "--www":
+			www = args[i+1]
+		case "--install":
+			install = args[i+1]
+		}
+	}
+	app, err := NewApp(root, www)
+	if err != nil {
+		return err
+	}
+	for _, item := range strings.Split(install, ",") {
+		if item = strings.TrimSpace(item); item != "" && !contains(app.cfg.PendingInstalls, item) {
+			app.cfg.PendingInstalls = append(app.cfg.PendingInstalls, item)
+		}
+	}
+	if err := saveConfig(root, app.cfg); err != nil {
+		return err
+	}
+	cfg := app.config()
+	_ = os.MkdirAll(app.abs(cfg.WWWDir), 0o755)
+	app.writeShims(cfg)
+	for _, w := range app.syncDiscovery(cfg) {
+		fmt.Fprintln(os.Stderr, "warning:", w)
+	}
+	fmt.Printf("Omni Web Server initialized in %s (projects: %s)\n", root, app.abs(cfg.WWWDir))
+	return nil
+}
+
+func cmdCleanup(root string) error {
+	cfg, _, err := loadConfig(root)
+	if err != nil {
+		return err
+	}
+	// Ask a running instance to stop first so files are not in use.
+	if c, err := newClient(root); err == nil && c.running() {
+		_ = c.call("POST", "/api/quit", nil, nil)
+		time.Sleep(3 * time.Second)
+	}
+	app := &App{root: root, cfg: cfg, versions: map[string]string{}, log: log.New(io.Discard, "", 0)}
+	for _, e := range app.Cleanup() {
+		fmt.Fprintln(os.Stderr, "warning:", e)
+	}
+	return nil
 }
 
 func cmdHostsApply(args []string) error {
@@ -130,7 +198,7 @@ func newClient(root string) (*client, error) {
 	return &client{root: root, base: fmt.Sprintf("http://127.0.0.1:%d", cfg.DashboardPort)}, nil
 }
 
-var errNotRunning = errors.New("DevStack is not running: start it with `devstack start` (or `devstack serve`)")
+var errNotRunning = errors.New("Omni Web Server is not running: start it with `omni start` (or `omni serve`)")
 
 func (c *client) call(method, path string, body, out any) error {
 	var rd io.Reader
@@ -140,7 +208,7 @@ func (c *client) call(method, path string, body, out any) error {
 	}
 	req, _ := http.NewRequest(method, c.base+path, rd)
 	req.Host = strings.Replace(strings.TrimPrefix(c.base, "http://"), "127.0.0.1", "localhost", 1)
-	req.Header.Set("X-DevStack", "1")
+	req.Header.Set("X-Omni", "1")
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
 	if err != nil {
@@ -170,7 +238,7 @@ func (c *client) state() (*StateView, error) {
 
 func need(args []string, n int, what string) error {
 	if len(args) < n {
-		return fmt.Errorf("usage: devstack %s", what)
+		return fmt.Errorf("usage: omni %s", what)
 	}
 	return nil
 }
@@ -184,7 +252,7 @@ func (c *client) run(cmd string, args []string) error {
 				return err
 			}
 			p := exec.Command(exe, "serve", "--no-browser")
-			p.Env = append(os.Environ(), "DEVSTACK_HOME="+c.root)
+			p.Env = append(os.Environ(), "OMNI_HOME="+c.root)
 			detach(p)
 			if err := p.Start(); err != nil {
 				return err
@@ -193,9 +261,9 @@ func (c *client) run(cmd string, args []string) error {
 				time.Sleep(100 * time.Millisecond)
 			}
 			if !c.running() {
-				return errors.New("DevStack did not start; see logs/devstack.log")
+				return errors.New("Omni Web Server did not start; see logs/omni.log")
 			}
-			fmt.Println("DevStack started in the background")
+			fmt.Println("Omni Web Server started in the background")
 		}
 		if err := c.call("POST", "/api/services/all/start", nil, nil); err != nil {
 			return err
@@ -234,11 +302,75 @@ func (c *client) run(cmd string, args []string) error {
 		}
 		body := map[string]string{"component": args[0]}
 		if len(args) > 1 {
-			body["url"] = args[1]
+			if strings.HasPrefix(args[1], "http") {
+				body["url"] = args[1]
+			} else {
+				body["version"] = args[1]
+			}
 		}
 		return c.install(body)
 	case "db":
 		return c.db(args)
+	case "tools":
+		var tools []devTool
+		if err := c.call("GET", "/api/tools", nil, &tools); err != nil {
+			return err
+		}
+		st, err := c.state()
+		if err != nil {
+			return err
+		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(tw, "ID\tTOOL\tSTATUS")
+		composer := "not installed (omni install composer)"
+		if st.Tools.Composer != "" {
+			composer = st.Tools.Composer
+		}
+		fmt.Fprintf(tw, "composer\tComposer\t%s\n", composer)
+		node := "not installed (omni install node)"
+		if st.Tools.NodeDefault != "" {
+			node = st.Tools.NodeDefault
+		}
+		fmt.Fprintf(tw, "node\tNode.js\t%s\n", node)
+		for _, t := range tools {
+			status := "not installed (omni install tool " + t.ID + ")"
+			if t.Installed {
+				status = "installed: " + t.Path
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\n", t.ID, t.Name, status)
+		}
+		tw.Flush()
+		fmt.Printf("\nOn PATH via %s: %s\n", st.ShimsDir, strings.Join(st.Tools.Shims, ", "))
+		return nil
+	case "node":
+		if len(args) >= 2 && args[0] == "default" {
+			return c.call("POST", "/api/node/default", map[string]string{"version": args[1]}, nil)
+		}
+		st, err := c.state()
+		if err != nil {
+			return err
+		}
+		for _, v := range st.Tools.Node {
+			mark := " "
+			if v == st.Tools.NodeDefault {
+				mark = "*"
+			}
+			fmt.Println(mark, v)
+		}
+		return nil
+	case "share":
+		if err := need(args, 1, "share <site> [off]"); err != nil {
+			return err
+		}
+		on := !(len(args) > 1 && args[1] == "off")
+		var out struct{ URL string }
+		if err := c.call("POST", "/api/sites/"+pathEscape(args[0])+"/share", map[string]bool{"on": on}, &out); err != nil {
+			return err
+		}
+		if on {
+			fmt.Println(out.URL)
+		}
+		return nil
 	case "hosts":
 		return c.call("POST", "/api/hosts/sync", nil, nil)
 	case "ssl":
@@ -252,9 +384,9 @@ func (c *client) run(cmd string, args []string) error {
 				if err := c.call("POST", "/api/ssl/trust", nil, nil); err != nil {
 					return err
 				}
-				fmt.Println("The DevStack CA is now trusted.")
+				fmt.Println("The Omni Web Server CA is now trusted.")
 			default:
-				return errors.New("usage: devstack ssl [on|off|trust]")
+				return errors.New("usage: omni ssl [on|off|trust]")
 			}
 		}
 		st, err := c.state()
@@ -271,7 +403,7 @@ func (c *client) run(cmd string, args []string) error {
 			fmt.Printf("HTTPS: on (port %d) - every enabled site is at https://<name>.%s\n", st.Settings.HTTPSPort, st.Settings.TLD)
 		}
 		if s.CA {
-			trust := "NOT trusted yet: run `devstack ssl trust`"
+			trust := "NOT trusted yet: run `omni ssl trust`"
 			if s.Trusted {
 				trust = "trusted"
 			}
@@ -282,7 +414,7 @@ func (c *client) run(cmd string, args []string) error {
 		if len(args) > 0 {
 			on := args[0] == "on"
 			if !on && args[0] != "off" {
-				return errors.New("usage: devstack dns [on|off]")
+				return errors.New("usage: omni dns [on|off]")
 			}
 			if err := c.call("POST", "/api/settings", map[string]bool{"wildcard_dns": on}, nil); err != nil {
 				return err
@@ -303,7 +435,7 @@ func (c *client) run(cmd string, args []string) error {
 			if d.Active {
 				fmt.Printf("Windows sends *.%s lookups here (NRPT rule); the hosts file is not needed.\n", st.Settings.TLD)
 			} else if d.Resolver == "nrpt" {
-				fmt.Println("The Windows resolver rule is not in place yet: run `devstack hosts` and accept the UAC prompt.")
+				fmt.Println("The Windows resolver rule is not in place yet: run `omni hosts` and accept the UAC prompt.")
 			} else {
 				fmt.Printf("Point your resolver at it for *.%s (dnsmasq: server=/%s/127.0.0.1#%d).\n", st.Settings.TLD, st.Settings.TLD, st.Settings.DNSPort)
 			}
@@ -329,7 +461,7 @@ func (c *client) run(cmd string, args []string) error {
 		fmt.Print(out.Text)
 		return nil
 	}
-	return fmt.Errorf("unknown command %q (see devstack help)", cmd)
+	return fmt.Errorf("unknown command %q (see omni help)", cmd)
 }
 
 func (c *client) printStatus() error {

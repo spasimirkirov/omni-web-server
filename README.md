@@ -1,116 +1,115 @@
-# DevStack
+<p align="center"><img src="favicons/android-chrome-192x192.png" width="96" alt=""></p>
 
-A portable, Laragon-style local web server for PHP development on Windows:
-**Apache + several PHP versions side by side + MySQL/MariaDB**, with automatic
-`*.local` virtual hosts, controlled from a web dashboard or the command line.
-Everything lives in one folder and is driven by a single `devstack.exe`.
+# Omni Web Server
+
+A Laragon-style local web server for PHP development on Windows 10/11:
+**Apache + several PHP versions side by side + MySQL/MariaDB**, plus Composer,
+Node.js, Mailpit, Redis and Xdebug. It gives you automatic `*.local` virtual
+hosts, wildcard DNS and one-click HTTPS, all controlled from a web dashboard
+(<http://localhost:8800>) or the `omni` command line. A single `omni.exe`
+manages everything, and an installer sets it up.
 
 ## Features
 
-- **Automatic vhosts.** Every folder in `www` becomes `http://<folder>.local`.
-  Each project has an on/off toggle. With *Auto vhost* on, new folders are
-  enabled as soon as they appear; with it off, they appear disabled.
-- **Framework detection.** Laravel projects (an `artisan` file, or
-  `laravel/framework` in `composer.json`) are served from `public/`
-  automatically. Symfony, CodeIgniter 4 (`public/`), Yii/Craft (`web/`) and
-  WordPress are detected too. You can override the document root of any
-  project. Detection runs continuously, so `composer create-project` switches
-  to `public/` as soon as `artisan` exists.
-- **Per-project PHP versions.** Install as many PHP versions as you like (the
-  latest releases, or any older version from the windows.php.net archives) and
-  choose one per project. Each version runs its own pool of `php-cgi` workers.
-- **PHP extension toggles.** Every extension found in a version's `ext` folder
-  has a switch. Load-order dependencies are handled for you (for example,
-  enabling `pdo_mysql` also loads `pdo` and `mysqlnd`). `php.ini` values such
-  as `memory_limit` can be edited per version. Changes restart only that
-  version's workers.
-- **MySQL 8.4 or MariaDB 11.4.** The server is initialized on first start
-  (user `root`, no password). The dashboard lists, creates and drops
-  databases, changes the root password, and can install Adminer at
-  `http://adminer.local`.
-- **hosts file managed for you.** A marked block in
-  `C:\Windows\System32\drivers\etc\hosts` is kept in sync. It contains both
-  `name.local` and `www.name.local`. The rest of the file is never touched.
-- **Wildcard DNS (optional).** A built-in DNS server answers every
-  `*.local` name, including deep subdomains like `api.blog.local` or
-  `tenant1.shop.local`, with `127.0.0.1`. Apache adds
-  `ServerAlias *.<project>.local`, so subdomains reach the right project,
-  which suits multi-tenant apps and subdomain routing. On Windows, DevStack
-  adds a DNS Client NRPT rule (Name Resolution Policy Table) that sends only
-  `.local` lookups to `127.0.0.1`; all other DNS is unchanged. While that
-  rule is active, the hosts file no longer needs editing, so no more UAC
-  prompts when you add projects.
-- **Easy HTTPS.** One switch serves every site at `https://name.local`.
-  DevStack creates a local certificate authority once and issues a
-  certificate per site covering `name.local` and `*.name.local`, renewing it
-  automatically. Clicking "Trust certificate" adds the CA to your Windows user
-  certificate store: one confirmation dialog, no admin rights, no OpenSSL
-  or mkcert. PHP's curl/openssl trust it too, so your app can call its own
-  `https://` endpoints.
-- **Easy custom vhosts.** "Add vhost…" serves any folder outside `www` under a
-  name you choose.
-- **CLI shims.** `bin\shims\php.cmd`, `php83.cmd`, … run the CLI with the same
-  `php.ini` as the web server, so `php artisan` and Composer see the same
-  extensions. "Add to my PATH" on the PHP tab registers the folder.
-- **Supervision.** Crashed processes restart with backoff. Closing DevStack
-  stops Apache, PHP and MySQL with it, using a Windows job object, so nothing
-  is left orphaned.
+- **Installer.** You choose the program folder and, separately, the projects
+  (`www`) folder, which can be on any drive. You also tick the components you
+  want: they are downloaded on the first start, so the server is ready right
+  away. Programs and Features gets an uninstaller.
+- **Automatic vhosts.** Every folder in `www` becomes `http://<folder>.local`,
+  with an on/off toggle per project. *Auto vhost* enables new folders
+  immediately.
+- **Framework detection.** Laravel (`artisan` or `laravel/framework`),
+  Symfony, CodeIgniter 4 (`public/`), Yii/Craft (`web/`) and WordPress are
+  detected, and you can override any document root.
+- **Per-project PHP versions.** Install any number of PHP versions, choose
+  one per project, and toggle extensions or edit `php.ini` per version.
+  **Xdebug** installs with one click per version and is set up for VS Code
+  and PhpStorm (port 9003).
+- **MySQL 8.4 or MariaDB 11.4** with a database manager in the dashboard, plus
+  Adminer.
+- **Mailpit.** Catches every e-mail your apps send. `mail()` and Laravel's
+  SMTP (`127.0.0.1:1025`) go to the inbox at <http://localhost:8025>.
+- **Redis** for Laravel cache, queues and sessions (`127.0.0.1:6379`).
+- **Composer and Node.js** (several versions, one default) without separate
+  installers.
+- **Discoverable everywhere.** `bin\shims` holds `php`, `php83`, `composer`,
+  `node`, `npm`, `npx`, `mysql`, `mysqldump` and `redis-cli`, and it is
+  added to your user **PATH**. Every terminal, PhpStorm and VS Code find the
+  same PHP (with the same `php.ini`) as the web server. The registry key
+  **`HKCU\Software\OmniWebServer`** records the install folder, the www
+  folder and the paths of every PHP version, MySQL, Apache, Redis, Mailpit and
+  Node.js. **`%OMNI_HOME%`** points to the install folder.
+- **Wildcard DNS** (`api.blog.local`, `tenant1.shop.local`) and **one-click
+  HTTPS** with a locally trusted CA.
+- **Share a site.** One click gives a public `https://….trycloudflare.com`
+  URL for webhooks or showing a client (needs Cloudflare Tunnel).
+- **Developer apps through winget**: Git, Windows Terminal, VS Code,
+  PhpStorm, HeidiSQL, DBeaver, Cloudflare Tunnel, ngrok, Docker Desktop and
+  WSL. Each can be installed and its status checked from the Tools tab.
+- **hosts file managed for you**, process supervision with automatic restarts,
+  and no orphaned processes when Omni Web Server closes.
 
-## Quick start (Windows 10/11, x64)
+## Install
 
-1. Install the [Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-   if you don't have it. Apache, PHP and MySQL all need it, and the dashboard
-   warns you when it is missing.
-2. Unzip DevStack somewhere short without spaces, e.g. `C:\DevStack`.
-3. Right-click `devstack.exe` → **Run as administrator**. Admin rights are only
-   needed to edit the hosts file. Without them, you get a UAC prompt each time
-   the hosts file has to change.
-4. The dashboard opens at <http://localhost:8800>. Install the components:
-   - **Overview → Install Apache**: the latest Apache Lounge build.
-   - **PHP → Install version…**: pick 8.4, 8.3, … or type e.g. `7.4.33`.
-   - **Overview → Install MySQL 8.4** (or MariaDB 11.4).
-5. Click **Start all**. A sample project is at <http://welcome.local>.
+1. Run `OmniWebServer-<version>-Setup.exe`.
+2. **Program folder**: e.g. `C:\OmniWebServer`. Use a short path without
+   spaces, and avoid *Program Files*, which normal users can't write to.
+3. **Projects folder (www)**: anywhere, e.g. `D:\Projects`. The uninstaller
+   never deletes it.
+4. **Components**: Apache, PHP, MySQL, Composer, Node.js and Mailpit are
+   selected by default. Redis, MariaDB, Adminer and the winget apps (Git is on
+   by default) are optional. The Visual C++ Redistributable that
+   Apache/PHP/MySQL need is installed when missing.
+5. Finish. Omni Web Server starts, downloads the selected components (watch
+   the progress at the top of the dashboard), then starts everything. A
+   sample site is at <http://welcome.local>.
 
-Create a Laravel app and it is live right away:
+"Run as administrator" (on by default) marks the shortcuts to start elevated,
+so hosts/DNS changes need no UAC prompts. "Start with Windows" adds a sign-in
+entry that starts Omni Web Server in the background.
+
+Silent install:
+`OmniWebServer-1.1.0-Setup.exe /S /WWW=D:\Projects /D=C:\OmniWebServer`.
+A **portable zip** is also built: unzip `omni.exe` anywhere and run it.
+
+Uninstalling stops everything and removes the hosts entries, the DNS rule,
+the PATH entry and the registry key. It then asks whether to delete databases,
+downloaded components and settings too. Projects are always kept.
+
+### Laravel in 30 seconds
 
 ```bat
-cd C:\DevStack\www
+cd D:\Projects
 composer create-project laravel/laravel blog
-:: -> http://blog.local (DocumentRoot = www\blog\public)
+omni db create blog
+:: http://blog.local  (DocumentRoot = blog\public)
 ```
 
-`.env` for MySQL: `DB_HOST=127.0.0.1`, `DB_PORT=3306`, `DB_USERNAME=root`,
-`DB_PASSWORD=` (empty unless you changed it). Create the database on the
-Databases tab or with `devstack db create blog`.
+`.env`: `DB_HOST=127.0.0.1`, `DB_USERNAME=root`, `DB_PASSWORD=`,
+`MAIL_HOST=127.0.0.1`, `MAIL_PORT=1025`, `REDIS_HOST=127.0.0.1`.
+Run `npm install && npm run dev` with the bundled Node.js.
 
-### When an automatic download fails
+### Debugging with Xdebug
 
-The download sites change from time to time. Each install button has a
-**From URL…** option that takes any `.zip` URL. You can also unzip a download
-yourself:
-
-| Component | Unzip into | DevStack looks for |
-|-----------|------------|--------------------|
-| Apache (apachelounge.com, Win64) | `bin\apache\<any name>\` | `bin\httpd.exe` |
-| PHP (windows.php.net, **NTS x64**) | `bin\php\<any name>\` | `php-cgi.exe` |
-| MySQL / MariaDB (ZIP archive, winx64) | `bin\mysql\<any name>\` | `bin\mysqld.exe` |
-
-Restart DevStack and the new folders are registered automatically.
+PHP tab → **Install Xdebug** for the version. It is configured with
+`xdebug.mode=debug,develop`, `start_with_request=trigger` and port 9003.
+Start listening in VS Code (PHP Debug extension) or PhpStorm, then add
+`?XDEBUG_TRIGGER=1` to the URL or use the browser's Xdebug helper.
 
 ### Wildcard DNS
 
-Turn it on under **Settings → Wildcard DNS** or with `devstack dns on`.
+Turn it on under **Settings → Wildcard DNS** or with `omni dns on`.
 Accept the one-time UAC prompt, which installs the NRPT rule. Check it from
 PowerShell:
 
 ```powershell
-Get-DnsClientNrptRule | Where-Object Comment -eq DevStack   # Namespace .local -> 127.0.0.1
+Get-DnsClientNrptRule | Where-Object Comment -eq Omni Web Server   # Namespace .local -> 127.0.0.1
 Resolve-DnsName anything.blog.local                         # 127.0.0.1 / ::1
 ```
 
 Notes:
 - Windows can only send NRPT queries to port 53. If another program (e.g.
-  Internet Connection Sharing) already uses `127.0.0.1:53`, DevStack shows
+  Internet Connection Sharing) already uses `127.0.0.1:53`, Omni Web Server shows
   that program. In that case sites keep working through the hosts file.
 - `.local` is also used by mDNS (printers, network devices). If your network
   has `.local` devices, switch the domain suffix to `.test`, which is reserved
@@ -120,16 +119,16 @@ Notes:
   rules exist. In Firefox, add the suffix to
   `network.trr.excluded-domains` or turn off DoH.
 - Turning wildcard DNS off removes the NRPT rule and restores the hosts
-  entries. The rule stays in place while DevStack is closed. Apache is down
+  entries. The rule stays in place while Omni Web Server is closed. Apache is down
   then anyway, so nothing else is affected.
-- On Linux/macOS, DevStack runs the DNS server but doesn't change the system
+- On Linux/macOS, Omni Web Server runs the DNS server but doesn't change the system
   resolver. Point dnsmasq (`server=/local/127.0.0.1`) or systemd-resolved at
   it yourself.
 
 ### HTTPS
 
-Turn it on under **Settings → HTTPS** (or `devstack ssl on`), then click
-**Trust certificate** (`devstack ssl trust`) and confirm the Windows dialog.
+Turn it on under **Settings → HTTPS** (or `omni ssl on`), then click
+**Trust certificate** (`omni ssl trust`) and confirm the Windows dialog.
 Every enabled site now also answers on `https://` with a valid certificate,
 including one level of subdomains (`https://api.blog.local`). Plain `http://`
 keeps working.
@@ -137,57 +136,54 @@ keeps working.
 - Laravel: set `APP_URL=https://blog.local`. PHP receives `HTTPS=on`, so
   `url()` and `asset()` generate `https://` links.
 - Phones and other devices: **Download CA** and install it there.
-- The CA's private key is `etc\ssl\devstack-ca.key`. Anyone holding it can
+- The CA's private key is `etc\ssl\omni-ca.key`. Anyone holding it can
   create certificates your PC trusts, so never share or commit it. To rotate
-  it, delete `etc\ssl\devstack-ca.*`, then trust the new CA. Remove the old
+  it, delete `etc\ssl\omni-ca.*`, then trust the new CA. Remove the old
   one from `certmgr.msc` → Trusted Root Certification Authorities.
 
 ## Command line
 
-Run `devstack help` for the full list. Most commands talk to the running
-DevStack (start it with `devstack start` or by double-clicking the exe).
+`omni help` lists everything. Most commands talk to the running server (start
+it with `omni start` or the shortcut).
 
 ```text
-devstack start                      start DevStack in the background + all services
-devstack stop | quit                stop services | stop services and exit
-devstack status                     services, PHP pools and sites
-devstack sites                      list projects and their vhosts
-devstack site enable|disable blog   toggle the vhost
-devstack site php blog 8.2          run blog on PHP 8.2 (use "default" to reset)
-devstack site root blog web         custom document root (use "auto" to reset)
-devstack site add shop D:\work\shop add a vhost for a folder outside www
-devstack php install 8.4            download a PHP version (or 7.4.33 from the archives)
-devstack php default 8.4            default PHP for projects without their own setting
-devstack ext 8.4 on xdebug intl     enable extensions (off to disable)
-devstack ini 8.4 memory_limit=1G    set php.ini values
-devstack install mariadb            download MariaDB (also: apache, mysql, adminer)
-devstack db create blog             create a utf8mb4 database
-devstack dns on                     wildcard DNS: *.local (any depth) -> this PC
-devstack ssl on | ssl trust         HTTPS for all sites | trust the local CA
-devstack logs apache_error 100      show a log
+omni start | stop | quit           start in background + services | stop services | exit
+omni status                        services, PHP pools and sites
+omni site enable|disable blog      toggle a vhost
+omni site php blog 8.2             PHP version per project ("default" to reset)
+omni site root blog web            custom document root ("auto" to reset)
+omni site add shop D:\work\shop    vhost for a folder outside www
+omni php install 8.4               download PHP (or 7.4.33 from the archives)
+omni ext 8.4 on intl               toggle extensions
+omni install xdebug 8.4            Xdebug for PHP 8.4
+omni install composer | node 22 | mailpit | redis | mariadb | adminer
+omni install tool git              Windows apps via winget (see: omni tools)
+omni node default 22.11.0          default Node.js
+omni db create blog                utf8mb4 database
+omni dns on | ssl on | ssl trust   wildcard DNS, HTTPS, trust the local CA
+omni share blog [off]              public https URL through Cloudflare
+omni logs apache_error 100         show a log
+omni init --www D:\Projects         prepare settings (used by the installer)
+omni cleanup                       undo hosts/DNS/PATH/registry (used by the uninstaller)
 ```
 
 ## Folder layout
 
 ```text
-DevStack\
-  devstack.exe        the whole tool: dashboard, CLI, supervisor
-  devstack.json       settings and per-project choices
-  www\                your projects -> <name>.local
-  bin\apache\…        Apache
-  bin\php\php-8.4.x\  one folder per PHP version
-  bin\mysql\…         MySQL or MariaDB
-  bin\shims\          php.cmd, php84.cmd, … for the terminal
-  etc\apache\httpd.conf     generated; put your own directives in etc\apache\custom\*.conf
-  etc\ssl\             local CA, per-site certificates, CA bundle for PHP
+C:\OmniWebServer\
+  omni.exe            dashboard, CLI and supervisor
+  omni.json           settings and per-project choices
+  bin\apache\ bin\php\php-8.4.x\ bin\mysql\ bin\node\ bin\redis\ bin\mailpit\ bin\composer\
+  bin\shims\          php, composer, node, npm, mysql, redis-cli ... (on PATH)
+  etc\apache\httpd.conf     generated; own directives go in etc\apache\custom\*.conf
   etc\php\8.4\php.ini       generated per version from php.ini-development + your settings
-  etc\mysql\my.ini          generated; put overrides in etc\mysql\custom.ini
-  data\mysql\         database files
-  logs\               apache_error, apache_access, mysql_error, php84_error, devstack, …
+  etc\mysql\my.ini          generated; overrides in etc\mysql\custom.ini
+  etc\redis\redis.conf      generated; overrides in etc\redis\custom.conf
+  etc\ssl\             local CA, per-site certificates, CA bundle for PHP
+  data\mysql\ data\redis\ data\mailpit\
+  logs\                apache_error, mysql_error, php84_error, mailpit, redis, omni, ...
+D:\Projects\           your projects (www), wherever you chose
 ```
-
-Generated files are rewritten when settings change, so make changes in the
-dashboard, `devstack.json`, or the `custom` include files.
 
 ## How it works
 
@@ -197,7 +193,7 @@ dashboard, `devstack.json`, or the `custom` include files.
   PHP over FastCGI with `SetHandler "proxy:fcgi://…"`. Dotfiles such as
   `.env` and `.git` are denied.
 - **PHP** runs as a pool of `php-cgi.exe -b` workers per version (4 by
-  default). php-cgi on Windows serves one request at a time, so DevStack
+  default). php-cgi on Windows serves one request at a time, so Omni Web Server
   listens on one port per version (`9000 + major*100 + minor*10`, e.g. 9840
   for 8.4). It hands each request to an idle worker and queues the rest.
   Each version can therefore run several requests at once, and versions are
@@ -220,20 +216,24 @@ dashboard, `devstack.json`, or the `custom` include files.
   (step 1), then check the log the dashboard shows.
 - **`name.local` doesn't resolve**: click *Settings → Rewrite hosts file now*
   (or *Apply DNS rule* when wildcard DNS is on) and accept the UAC prompt,
-  or run DevStack as administrator. Then check that the DevStack block exists
-  in the hosts file, or that `Get-DnsClientNrptRule` lists the DevStack rule.
-- **Windows SmartScreen warns about devstack.exe**: the build is not
+  or run Omni Web Server as administrator. Then check that the Omni Web Server block exists
+  in the hosts file, or that `Get-DnsClientNrptRule` lists the Omni Web Server rule.
+- **Windows SmartScreen warns about omni.exe**: the build is not
   code-signed. Choose *More info → Run anyway*.
 
 ## Building from source
 
-Go 1.22+ and no third-party dependencies:
+Go 1.22+ (standard library only) and NSIS 3 for the installer:
 
 ```sh
-GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o dist/devstack.exe .
-go test ./...
+./build.sh      # tests, dist/OmniWebServer/omni.exe, the Setup.exe and a portable zip
 ```
 
-DevStack also runs on Linux. On first run it detects the system Apache
-(`apache2`/`httpd`), every `php-cgi*` binary, and `mysqld`/`mariadbd`. The
-end-to-end tests of this project were run that way.
+`rsrc_windows_amd64.syso` embeds the icon and version info in `omni.exe`.
+Regenerate it with
+`go run github.com/tc-hib/go-winres@v0.3.3 simply --icon icon.png --manifest cli ...`.
+`installer/omni.nsi` is the installer script (English and Bulgarian).
+
+Omni Web Server also runs on Linux. On first run it detects the system Apache,
+`php-cgi*`, MySQL/MariaDB, Redis and Mailpit; the end-to-end tests were run
+that way.

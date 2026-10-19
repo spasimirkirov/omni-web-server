@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-// Easy SSL: DevStack keeps a local certificate authority (created once) and
+// Easy SSL: Omni Web Server keeps a local certificate authority (created once) and
 // issues a certificate per site covering "site.tld" and "*.site.tld". Once the
 // CA is trusted (one click on Windows), every https://*.local works without
 // browser warnings.
@@ -31,8 +31,8 @@ const (
 	renewBefore  = 30 * 24 * time.Hour
 )
 
-func (a *App) caCertPath() string   { return a.path("etc", "ssl", "devstack-ca.crt") }
-func (a *App) caKeyPath() string    { return a.path("etc", "ssl", "devstack-ca.key") }
+func (a *App) caCertPath() string   { return a.path("etc", "ssl", "omni-ca.crt") }
+func (a *App) caKeyPath() string    { return a.path("etc", "ssl", "omni-ca.key") }
 func (a *App) caBundlePath() string { return a.path("etc", "ssl", "bundle.pem") }
 
 func (a *App) siteCertPaths(host string) (string, string) {
@@ -96,7 +96,7 @@ func (a *App) loadCA() (*x509.Certificate, *ecdsa.PrivateKey, error) {
 	host, _ := os.Hostname()
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: "DevStack Local CA (" + host + ")", Organization: []string{"DevStack local development"}},
+		Subject:               pkix.Name{CommonName: "Omni Web Server Local CA (" + host + ")", Organization: []string{"Omni Web Server local development"}},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(caValidity),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
@@ -156,7 +156,7 @@ func (a *App) ensureSiteCert(ca *x509.Certificate, caKey *ecdsa.PrivateKey, host
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: host, Organization: []string{"DevStack local development"}},
+		Subject:      pkix.Name{CommonName: host, Organization: []string{"Omni Web Server local development"}},
 		DNSNames:     names,
 		IPAddresses:  ips,
 		NotBefore:    time.Now().Add(-time.Hour),
@@ -217,7 +217,7 @@ func (a *App) writeCABundle() {
 		buf.WriteString("\n")
 	}
 	if b, err := os.ReadFile(a.caCertPath()); err == nil {
-		buf.WriteString("DevStack Local CA\n=================\n")
+		buf.WriteString("Omni Web Server Local CA\n=================\n")
 		buf.Write(b)
 	}
 	if buf.Len() > 0 {

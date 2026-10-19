@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -116,23 +117,23 @@ func TestVersions(t *testing.T) {
 
 func TestRenderApacheConf(t *testing.T) {
 	conf := renderApacheConf(apacheInput{
-		ServerRoot: "C:/DevStack/bin/apache/httpd", WWW: "C:/DevStack/www", Logs: "C:/DevStack/logs", Tmp: "C:/DevStack/tmp",
-		CustomDir: "C:/DevStack/etc/apache/custom", Port: 80, Windows: true, Default: "127.0.0.1:9830",
+		ServerRoot: "C:/Omni Web Server/bin/apache/httpd", WWW: "C:/Omni Web Server/www", Logs: "C:/Omni Web Server/logs", Tmp: "C:/Omni Web Server/tmp",
+		CustomDir: "C:/Omni Web Server/etc/apache/custom", Port: 80, Windows: true, Default: "127.0.0.1:9830",
 		Modules: []apacheModule{{"rewrite", "C:/x/mod_rewrite.so"}},
-		Vhosts:  []apacheVhost{{Name: "blog", Host: "blog.local", DocRoot: "C:/DevStack/www/blog/public", Pool: "127.0.0.1:9740"}},
+		Vhosts:  []apacheVhost{{Name: "blog", Host: "blog.local", DocRoot: "C:/Omni Web Server/www/blog/public", Pool: "127.0.0.1:9740"}},
 	})
 	for _, want := range []string{
 		"Listen 80",
 		`LoadModule rewrite_module "C:/x/mod_rewrite.so"`,
 		"ServerName blog.local",
 		"ServerAlias *.blog.local",
-		`DocumentRoot "C:/DevStack/www/blog/public"`,
+		`DocumentRoot "C:/Omni Web Server/www/blog/public"`,
 		`SetHandler "proxy:fcgi://127.0.0.1:9740"`,
 		`SetHandler "proxy:fcgi://127.0.0.1:9830"`,
 		"AllowOverride All",
 		"ProxyFCGIBackendType GENERIC",
 		"AcceptFilter http none",
-		`IncludeOptional "C:/DevStack/etc/apache/custom/*.conf"`,
+		`IncludeOptional "C:/Omni Web Server/etc/apache/custom/*.conf"`,
 	} {
 		if !strings.Contains(conf, want) {
 			t.Errorf("config missing %q", want)
@@ -352,5 +353,76 @@ func TestSiteCertificates(t *testing.T) {
 		if !strings.Contains(conf, want) {
 			t.Errorf("config missing %q", want)
 		}
+	}
+}
+
+func TestPickNode(t *testing.T) {
+	rels := []nodeRelease{
+		{Version: "v26.1.0", LTS: []byte("false"), Files: []string{"win-x64-zip"}},
+		{Version: "v24.22.0", LTS: []byte(`"Krypton"`), Files: []string{"win-x64-zip"}},
+		{Version: "v22.23.3", LTS: []byte(`"Jod"`), Files: []string{"win-x64-zip"}},
+		{Version: "v22.23.2", LTS: []byte(`"Jod"`), Files: []string{"linux-x64"}},
+	}
+	cases := map[string]string{"": "24.22.0", "lts": "24.22.0", "22": "22.23.3", "26": "26.1.0", "v22.23.3": "22.23.3"}
+	for in, want := range cases {
+		if got, err := pickNode(rels, in); err != nil || got != want {
+			t.Errorf("pickNode(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	if _, err := pickNode(rels, "18"); err == nil {
+		t.Error("missing version must fail")
+	}
+}
+
+func TestXdebugAndTunnelPatterns(t *testing.T) {
+	page := `<a href="/files/php_xdebug-3.4.5-8.3-nts-vs16-x86_64.dll">a</a>
+<a href="/files/php_xdebug-3.4.5-8.3-vs16-x86_64.dll">ts</a>
+<a href="/files/php_xdebug-3.3.2-8.3-vs16-nts-x86_64.dll">old</a>
+<a href="/files/php_xdebug-3.5.0alpha1-8.3-nts-vs16-x86_64.dll">alpha</a>
+<a href="/files/php_xdebug-3.4.5-8.4-nts-vs17-x86_64.dll">84</a>`
+	re := regexp.MustCompile(`(/files/php_xdebug-(\d+\.\d+\.\d+)-` + regexp.QuoteMeta("8.3") + `-[a-z0-9-]*nts[a-z0-9-]*-x86_64\.dll)`)
+	var got []string
+	for _, m := range re.FindAllStringSubmatch(page, -1) {
+		got = append(got, m[2])
+	}
+	if strings.Join(got, ",") != "3.4.5,3.3.2" {
+		t.Fatalf("xdebug matches: %v", got)
+	}
+	log := "2026-10-19T10:00:00Z INF |  https://quiet-river-1234.trycloudflare.com  |"
+	if u := tunnelURLRe.FindString(log); u != "https://quiet-river-1234.trycloudflare.com" {
+		t.Fatalf("tunnel url: %q", u)
+	}
+}
+
+func TestShimsAndPendingOrder(t *testing.T) {
+	root := t.TempDir()
+	phpDir := filepath.Join(root, "bin", "php", "php-8.3.1")
+	os.MkdirAll(phpDir, 0o755)
+	os.WriteFile(filepath.Join(phpDir, exeName("php")), nil, 0o755)
+	os.MkdirAll(filepath.Join(root, "bin", "composer"), 0o755)
+	os.WriteFile(filepath.Join(root, "bin", "composer", "composer.phar"), nil, 0o644)
+	a := &App{root: root}
+	cfg := defaultConfig()
+	cfg.PHP["8.3"] = &PHPInstall{Dir: "bin/php/php-8.3.1", Workers: 4}
+	cfg.DefaultPHP = "8.3"
+	os.MkdirAll(filepath.Join(root, "bin", "shims"), 0o755)
+	os.WriteFile(filepath.Join(root, "bin", "shims", "stale"), nil, 0o755)
+	a.writeShims(cfg)
+	entries, _ := os.ReadDir(filepath.Join(root, "bin", "shims"))
+	var names []string
+	for _, e := range entries {
+		names = append(names, strings.TrimSuffix(e.Name(), ".cmd"))
+	}
+	if strings.Join(names, ",") != "composer,php,php83" {
+		t.Fatalf("shims: %v", names)
+	}
+	vals := a.registryValues(cfg)
+	if vals[`PHP\8.3`]["Path"] == "" || vals[""]["ComposerPhar"] == "" || vals[""]["WWWDir"] != filepath.Join(root, "www") {
+		t.Fatalf("registry values: %v", vals)
+	}
+	items := []string{"tool:git", "composer", "redis", "php", "apache", "mysql"}
+	sort.SliceStable(items, func(i, j int) bool { return pendingRank(items[i]) < pendingRank(items[j]) })
+	if strings.Join(items, ",") != "apache,php,mysql,composer,redis,tool:git" {
+		t.Fatalf("pending order: %v", items)
 	}
 }
