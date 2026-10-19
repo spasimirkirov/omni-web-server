@@ -63,6 +63,8 @@ button.btn, .btn { font: inherit; font-size: 13px; padding: 6px 12px; border-rad
 .err { color: var(--err); font-size: 12.5px; white-space: pre-wrap; word-break: break-word; }
 .notice { padding: 10px 14px; border-radius: 8px; margin: 0 0 8px; font-size: 13px; border: 1px solid transparent; }
 .notice.warn { background: var(--warn-bg); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.notice.info { background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.notice.info .spacer { flex: 1; }
 .notice.error { background: var(--err-bg); color: var(--err); }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
@@ -211,8 +213,15 @@ function renderGlobal() {
     <button class="btn" data-act="stop-all">Stop all</button>`;
 }
 
+function updateDismissed(v) { try { return localStorage.getItem("omni-update-later") === v; } catch (e) { return false; } }
+
 function renderNotices() {
-  $("#notices").innerHTML = (S.warnings || []).map(w => `<div class="notice warn">${esc(w)}</div>`).join("");
+  const u = S.update || {};
+  const banner = u.available && !updateDismissed(u.version) ? `<div class="notice info">
+      <span><strong>Omni Web Server ${esc(u.version)}</strong> is available (you have ${esc(S.version)}).</span><span class="spacer"></span>
+      <a class="btn small primary" href="${esc(u.url)}" target="_blank" rel="noopener">What's new &amp; download</a>
+      <button class="btn small" data-act="update-later">Later</button></div>` : "";
+  $("#notices").innerHTML = banner + (S.warnings || []).map(w => `<div class="notice warn">${esc(w)}</div>`).join("");
   const tasks = S.tasks || [];
   $("#tasks").innerHTML = tasks.length ? `<div class="panel" style="margin-bottom:12px">${tasks.map(t => `
     <div class="task">
@@ -522,6 +531,16 @@ function renderSettings() {
       <label for="s-dash">Dashboard</label><div><input type="number" id="s-dash" value="${st.dashboard_port}" style="width:110px"><div class="hint">Takes effect after restarting Omni Web Server.</div></div>
       <label></label><div><button class="btn primary" data-act="save-ports">Save ports</button></div>
     </div></div>
+    <h2>Updates</h2>
+    <div class="panel pad"><div class="form-grid">
+      <label>Check for updates</label><div><label class="switch"><input type="checkbox" data-setting="check_updates" ${S.update.enabled ? "checked" : ""}><span></span></label>
+        <div class="hint">Once a day, Omni Web Server asks GitHub whether a newer version exists and shows a banner here. Nothing is downloaded or installed by itself.</div></div>
+      <label>Version</label><div class="row"><span class="mono small">v${esc(S.version)}</span>
+        <span class="small ${S.update.error ? "err" : "muted"}">${S.update.error ? "Last check failed: " + esc(S.update.error)
+          : S.update.available ? `Version ${esc(S.update.version)} is available. <a href="${esc(S.update.url)}" target="_blank" rel="noopener">Download</a>`
+          : S.update.checked ? "Up to date (checked " + esc(new Date(S.update.checked).toLocaleString()) + ")" : ""}</span>
+        <button class="btn" data-act="update-check">Check now</button></div>
+    </div></div>
     <h2>Startup</h2>
     <div class="panel pad"><div class="form-grid">
       ${sw("autostart", "Start services", "Start Apache, PHP and MySQL when Omni Web Server starts.")}
@@ -694,6 +713,15 @@ document.addEventListener("click", async e => {
         return;
       }
       case "log-refresh": return loadLog();
+      case "update-later": {
+        try { localStorage.setItem("omni-update-later", S.update.version); } catch (e) {}
+        return renderNotices();
+      }
+      case "update-check": {
+        S.update = await api("POST", "/api/update/check");
+        renderNotices();
+        return renderSettings();
+      }
       case "save-settings": {
         await act("POST", "/api/settings", { tld: $("#s-tld").value, www_dir: $("#s-www").value }, "Settings saved");
         return renderSettings();

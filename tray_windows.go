@@ -63,6 +63,7 @@ const (
 	nifTip     = 0x4
 	nifInfo    = 0x10
 
+	niifInfo  = 0x1
 	niifError = 0x3
 
 	mfString    = 0x0
@@ -328,7 +329,7 @@ func showTrayMenu(hwnd uintptr) {
 	service := func(name, action string) func() {
 		return func() {
 			if err := a.serviceAction(name, action); err != nil {
-				a.trayBalloon("Omni Web Server", err.Error())
+				a.trayBalloon("Omni Web Server", err.Error(), true)
 			}
 		}
 	}
@@ -337,6 +338,9 @@ func showTrayMenu(hwnd uintptr) {
 	defer procDestroyMenu.Call(menu)
 	add(menu, "Open dashboard", func() { a.openDashboard() })
 	procSetMenuDefaultItem.Call(menu, 100, 0)
+	if u := a.updateView(); u.Available {
+		add(menu, "Download version "+u.Version+"…", func() { _ = openURL(u.URL) })
+	}
 	sep(menu)
 	add(menu, "Start all", service("all", "start"))
 	add(menu, "Stop all", service("all", "stop"))
@@ -402,8 +406,8 @@ func (a *App) trayTooltipLoop() {
 	}
 }
 
-// trayBalloon shows a notification next to the tray icon (used for errors).
-func (a *App) trayBalloon(title, text string) {
+// trayBalloon shows a notification next to the tray icon.
+func (a *App) trayBalloon(title, text string, isError bool) {
 	trayState.Lock()
 	defer trayState.Unlock()
 	if trayState.app == nil {
@@ -412,6 +416,9 @@ func (a *App) trayBalloon(title, text string) {
 	d := a.trayNotifyData(nifInfo)
 	copyUTF16(d.SzInfoTitle[:], title)
 	copyUTF16(d.SzInfo[:], text)
-	d.DwInfoFlags = niifError
+	d.DwInfoFlags = niifInfo
+	if isError {
+		d.DwInfoFlags = niifError
+	}
 	procShellNotifyIcon.Call(nimModify, uintptr(unsafe.Pointer(&d)))
 }

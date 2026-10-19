@@ -456,3 +456,24 @@ func TestProcQueue(t *testing.T) {
 		t.Fatalf("unqueued: %s", st)
 	}
 }
+
+func TestNewestRelease(t *testing.T) {
+	rels := []ghRelease{
+		{Tag: "v1.1.0", Prerelease: true},
+		{Tag: "v1.10.0-beta", Prerelease: true},
+		{Tag: "v1.2.0"},
+		{Tag: "v9.9.9", Draft: true},
+		{Tag: "nightly"},
+	}
+	r, v, ok := newestRelease(rels)
+	if !ok || r.Tag != "v1.10.0-beta" || v != [3]int{1, 10, 0} {
+		t.Fatalf("newest = %q %v %v", r.Tag, v, ok)
+	}
+	cur, _ := parseVersion("1.1.0")
+	if !versionNewer(v, cur) || versionNewer(cur, cur) {
+		t.Fatal("versionNewer")
+	}
+	if _, ok := parseVersion("1.2"); ok {
+		t.Fatal("1.2 parsed")
+	}
+}

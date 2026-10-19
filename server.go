@@ -83,6 +83,7 @@ type StateView struct {
 	SSL       sslStatus         `json:"ssl"`
 	Tools     DevToolsView      `json:"tools"`
 	Shares    map[string]string `json:"shares"`
+	Update    UpdateView        `json:"update"`
 }
 
 type SettingsView struct {
@@ -203,6 +204,7 @@ func (a *App) State() StateView {
 	}
 	sort.Strings(st.Tools.Shims)
 	st.Shares = a.shareURLs()
+	st.Update = a.updateView()
 
 	required := requiredPHP(cfg, sites)
 	defaults := map[string]string{}
@@ -571,6 +573,9 @@ func (a *App) routes() http.Handler {
 		u, err := a.startShare(r.PathValue("name"))
 		return map[string]string{"url": u}, err
 	}))
+	mux.HandleFunc("POST /api/update/check", handle(func(r *http.Request) (any, error) {
+		return a.checkUpdate(), nil
+	}))
 	mux.HandleFunc("POST /api/quit", handle(func(r *http.Request) (any, error) {
 		go func() { time.Sleep(200 * time.Millisecond); a.Shutdown() }()
 		return nil, nil
@@ -872,6 +877,11 @@ func (a *App) updateSettings(body map[string]json.RawMessage) error {
 				err = json.Unmarshal(raw, &c.Autostart)
 			case "add_to_path":
 				err = json.Unmarshal(raw, &c.AddToPath)
+			case "check_updates":
+				var on bool
+				if err = json.Unmarshal(raw, &on); err == nil {
+					c.SkipUpdateCheck = !on
+				}
 			case "open_browser":
 				err = json.Unmarshal(raw, &c.OpenBrowser)
 			case "tld":
@@ -948,6 +958,7 @@ func (a *App) Serve(openBrowser bool) error {
 		a.log.Printf("apply: %v", err)
 	}
 	go a.watch()
+	go a.updateLoop()
 	a.startTray()
 	go func() {
 		a.runPendingInstalls()

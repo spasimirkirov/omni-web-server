@@ -51,6 +51,10 @@ type App struct {
 	tasks    *TaskManager
 	quit     chan struct{}
 	quitOnce sync.Once
+
+	// guarded by mu
+	upd         UpdateView
+	updNotified string // version the tray balloon was shown for
 }
 
 type phpPool struct {

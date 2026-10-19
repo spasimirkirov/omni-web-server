@@ -34,6 +34,8 @@ type Config struct {
 	// Autostart starts Apache/PHP/MySQL when the dashboard starts.
 	Autostart   bool `json:"autostart"`
 	OpenBrowser bool `json:"open_browser"`
+	// SkipUpdateCheck turns off the daily check for a newer release.
+	SkipUpdateCheck bool `json:"skip_update_check,omitempty"`
 	// AddToPath puts bin/shims (php, composer, node, mysql, ...) on the user PATH.
 	AddToPath  bool   `json:"add_to_path"`
 	DefaultPHP string `json:"default_php"`

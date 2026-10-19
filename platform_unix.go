@@ -152,5 +152,6 @@ func isDirPath(p string) bool {
 }
 
 // The tray icon is Windows-only.
-func (a *App) startTray() {}
-func closeTray()          {}
+func (a *App) startTray()                                   {}
+func closeTray()                                            {}
+func (a *App) trayBalloon(title, text string, isError bool) {}
