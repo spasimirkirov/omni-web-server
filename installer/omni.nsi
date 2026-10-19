@@ -245,8 +245,9 @@ Section "!Omni Web Server" SecCore
   WriteRegStr HKLM "${UNINSTKEY}" "URLInfoAbout" "http://localhost:8800/"
   WriteRegDWORD HKLM "${UNINSTKEY}" "NoModify" 1
   WriteRegDWORD HKLM "${UNINSTKEY}" "NoRepair" 1
-  ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
-  IntFmt $0 "0x%08X" $0
+  ; Size of the installed program only (KB). Never measure $INSTDIR: it can hold
+  ; www with node_modules, which takes NSIS many minutes to walk.
+  SectionGetSize ${SecCore} $0
   WriteRegDWORD HKLM "${UNINSTKEY}" "EstimatedSize" "$0"
 SectionEnd
 
