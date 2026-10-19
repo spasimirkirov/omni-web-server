@@ -404,6 +404,12 @@ async function renderTools(reload) {
         <div class="meta">Step debugging for VS Code / PhpStorm (port 9003, start with <code>XDEBUG_TRIGGER</code> or the browser extension).</div>
         <div class="actions"><button class="btn" data-goto="php">Open the PHP tab</button></div>
       </div>
+      ${(() => { const ad = (S.sites || []).find(s => s.name === "adminer"); return `
+      <div class="panel svc">
+        <div class="top"><span class="dot ${ad ? "running" : ""}"></span><span class="name">Adminer</span><span class="state">${ad ? esc(ad.host) : "not installed"}</span></div>
+        <div class="meta">Database manager in one PHP file, served as a site. Optional: any MySQL client works too.</div>
+        <div class="actions">${ad ? `<a class="btn" href="${esc(hostURL(ad.host))}" target="_blank" rel="noopener">Open Adminer</a><button class="btn" data-install="adminer">Update</button>` : `<button class="btn primary" data-install="adminer">Install Adminer</button>`}</div>
+      </div>`; })()}
     </div>
     <h2>Terminal &amp; IDE access</h2>
     <div class="panel pad"><div class="form-grid">

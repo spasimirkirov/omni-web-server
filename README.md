@@ -70,10 +70,11 @@ it up.
    to it.
 3. **Projects folder (www)**: anywhere, for example `D:\Projects`. The
    uninstaller never deletes it.
-4. **Components**: Apache, PHP, MySQL, Composer, Node.js and Mailpit are
-   selected by default. Redis, MariaDB, Adminer and the winget apps are
-   optional; Git is selected by default. If the Visual C++ Redistributable
-   that Apache, PHP and MySQL need is missing, the installer adds it.
+4. **Components**: Apache, PHP, MySQL, Composer, Node.js and Mailpit. You
+   can pick MariaDB instead of MySQL. If the Visual C++ Redistributable that
+   Apache, PHP and MySQL need is missing, the installer adds it. Extras such
+   as Redis, Adminer, Xdebug and developer apps (Git, VS Code, HeidiSQL, ...)
+   are installed later from the dashboard.
 5. Click **Finish**. Omni Web Server starts and downloads the selected
    components. You can watch the progress at the top of the dashboard. Then
    it starts everything. A sample site is at <http://welcome.local>.

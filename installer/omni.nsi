@@ -142,8 +142,6 @@ LangString DescVC ${LANG_ENGLISH} "Runtime needed by Apache, PHP and MySQL (skip
 LangString DescVC ${LANG_BULGARIAN} "Нужен на Apache, PHP и MySQL (пропуска се, ако вече е инсталиран)."
 LangString DescStack ${LANG_ENGLISH} "Downloaded automatically on the first start, so you get a working server right away."
 LangString DescStack ${LANG_BULGARIAN} "Изтеглят се автоматично при първото стартиране, за да имате работещ сървър веднага."
-LangString DescApps ${LANG_ENGLISH} "Windows apps installed with winget on the first start."
-LangString DescApps ${LANG_BULGARIAN} "Windows приложения, инсталирани с winget при първото стартиране."
 LangString DescAdmin ${LANG_ENGLISH} "Shortcuts start Omni Web Server as administrator, so hosts/DNS changes need no prompts."
 LangString DescAdmin ${LANG_BULGARIAN} "Преките пътища стартират Omni Web Server като администратор, без допълнителни въпроси за hosts/DNS."
 LangString DescDesktop ${LANG_ENGLISH} "Desktop shortcut."
@@ -284,28 +282,9 @@ SectionGroup /e "Web stack (downloaded on first start)" SecStack
   Section "Mailpit (mail catcher)" SecMailpit
     !insertmacro AddPending "mailpit"
   SectionEnd
-  Section /o "Redis" SecRedis
-    !insertmacro AddPending "redis"
-  SectionEnd
-  Section /o "Adminer (database web UI)" SecAdminer
-    !insertmacro AddPending "adminer"
-  SectionEnd
 SectionGroupEnd
-
-SectionGroup "Developer apps (winget)" SecApps
-  Section "Git for Windows" SecGit
-    !insertmacro AddPending "tool:git"
-  SectionEnd
-  Section /o "Visual Studio Code" SecVSCode
-    !insertmacro AddPending "tool:vscode"
-  SectionEnd
-  Section /o "HeidiSQL" SecHeidi
-    !insertmacro AddPending "tool:heidisql"
-  SectionEnd
-  Section /o "Cloudflare Tunnel (Share button)" SecCloudflared
-    !insertmacro AddPending "tool:cloudflared"
-  SectionEnd
-SectionGroupEnd
+; Optional extras (Redis, Adminer, developer apps) are installed later from
+; the dashboard, so the installer stays short.
 
 Section /o "Import from Laragon / XAMPP" SecImport
   !insertmacro AddPending "migrate:$MigrateKind"
@@ -352,7 +331,6 @@ SectionEnd
   !insertmacro MUI_DESCRIPTION_TEXT ${SecCore} "$(DescCore)"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecVC} "$(DescVC)"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecStack} "$(DescStack)"
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecApps} "$(DescApps)"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecImport} "$(DescImport)"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecAdmin} "$(DescAdmin)"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop} "$(DescDesktop)"
