@@ -230,6 +230,8 @@ Section "!Omni Web Server" SecCore
   File "${SRCDIR}\${APPEXE}"
   File "${SRCDIR}\${APPEXEW}"
   File "${SRCDIR}\README.md"
+  File "${SRCDIR}\LICENSE"
+  File "${SRCDIR}\CREDITS.md"
   File /oname=omni.ico "..\favicons\favicon.ico"
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
@@ -423,6 +425,8 @@ Section "Uninstall"
   Delete "$INSTDIR\${APPEXE}"
   Delete "$INSTDIR\${APPEXEW}"
   Delete "$INSTDIR\README.md"
+  Delete "$INSTDIR\LICENSE"
+  Delete "$INSTDIR\CREDITS.md"
   Delete "$INSTDIR\omni.ico"
   Delete "$INSTDIR\uninstall.exe"
   RMDir "$INSTDIR\www"   ; only when empty

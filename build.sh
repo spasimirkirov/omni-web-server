@@ -26,11 +26,11 @@ go test ./...
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/OmniWebServer/omni.exe .
 # Same program without a console window, for shortcuts and autostart.
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/OmniWebServer/omniw.exe .
-cp README.md dist/OmniWebServer/
+cp README.md LICENSE CREDITS.md dist/OmniWebServer/
 (cd installer && "$MAKENSIS" -V2 -DVERSION="$VERSION" -DSRCDIR=../dist/OmniWebServer -DOUTFILE="../dist/OmniWebServer-$VERSION-Setup.exe" omni.nsi)
 (cd dist && rm -f "OmniWebServer-$VERSION-portable.zip" && "$PYTHON" -c "
 import zipfile,sys
 z=zipfile.ZipFile('OmniWebServer-$VERSION-portable.zip','w',zipfile.ZIP_DEFLATED)
-for f in ['OmniWebServer/omni.exe','OmniWebServer/omniw.exe','OmniWebServer/README.md']: z.write(f)
+for f in ['OmniWebServer/omni.exe','OmniWebServer/omniw.exe','OmniWebServer/README.md','OmniWebServer/LICENSE','OmniWebServer/CREDITS.md']: z.write(f)
 ")
 ls -la dist

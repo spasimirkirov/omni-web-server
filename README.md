@@ -20,6 +20,7 @@
   <img src="https://img.shields.io/badge/status-in%20development-orange" alt="Status: in development">
   <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?logo=windows" alt="Windows 10 and 11">
   <img src="https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go&logoColor=white" alt="Go 1.22+">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
 </p>
 
 ---
@@ -315,3 +316,9 @@ The favicons in `favicons/` and `web/` are generated from `logo.png` as well.
 
 Omni Web Server also runs on Linux. On first run it finds the system's Apache,
 `php-cgi*`, MySQL or MariaDB, Redis and Mailpit.
+
+## License and credits
+
+Omni Web Server is released under the [MIT License](LICENSE).
+[CREDITS.md](CREDITS.md) lists the projects it installs and builds on, and
+their licenses.
