@@ -563,6 +563,21 @@ func (a *App) StopMySQL() error {
 
 func (a *App) StartAll() error {
 	cfg := a.config()
+	var queued []*Proc
+	for _, x := range []struct {
+		p   *Proc
+		bin string
+	}{{a.mysql, a.mysqlBin(cfg)}, {a.mailpit, a.mailpitBin(cfg)}, {a.redis, a.redisBin(cfg)}, {a.apache, a.apacheBin(cfg)}} {
+		if installed(x.bin) {
+			x.p.queue()
+			queued = append(queued, x.p)
+		}
+	}
+	defer func() {
+		for _, p := range queued {
+			p.unqueue()
+		}
+	}()
 	var errs []string
 	if b := a.mysqlBin(cfg); b != "" && exists(b) {
 		if err := a.StartMySQL(); err != nil {

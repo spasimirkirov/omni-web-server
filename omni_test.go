@@ -444,3 +444,15 @@ func TestRedisPathMSYS(t *testing.T) {
 		t.Fatalf("MSYS build: %q", got)
 	}
 }
+
+func TestProcQueue(t *testing.T) {
+	p := NewProc(ProcSpec{Name: "x"})
+	p.queue()
+	if st := p.Status().State; st != "starting" {
+		t.Fatalf("queued: %s", st)
+	}
+	p.unqueue()
+	if st := p.Status().State; st != "stopped" {
+		t.Fatalf("unqueued: %s", st)
+	}
+}

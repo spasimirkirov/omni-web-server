@@ -157,6 +157,25 @@ func (p *Proc) Start() error {
 	return p.waitReady(cmd, exited, 30*time.Second)
 }
 
+// queue shows "starting" for a process that is about to be started (StartAll
+// starts them one after another, so the later ones would show "stopped" for a
+// few seconds). unqueue undoes it if the start never happened.
+func (p *Proc) queue() {
+	p.mu.Lock()
+	if p.cmd == nil && (p.state == "stopped" || p.state == "failed") {
+		p.state, p.lastErr = "starting", ""
+	}
+	p.mu.Unlock()
+}
+
+func (p *Proc) unqueue() {
+	p.mu.Lock()
+	if p.cmd == nil && p.state == "starting" {
+		p.state = "stopped"
+	}
+	p.mu.Unlock()
+}
+
 func (p *Proc) setFailed(err error) {
 	p.mu.Lock()
 	p.state, p.lastErr = "failed", err.Error()
