@@ -278,6 +278,7 @@ type newProject struct {
 	PHP      string `json:"php"`
 	Database string `json:"database"` // empty: no database
 	Title    string `json:"title"`
+	Git      bool   `json:"git"` // git init + first commit
 	// WordPress admin account
 	AdminUser     string `json:"admin_user"`
 	AdminPassword string `json:"admin_password"`
@@ -301,7 +302,8 @@ func (a *App) startNewProject(p newProject) (*Task, error) {
 		return nil, badRequest("invalid project name (letters, digits, dot, dash, underscore)")
 	}
 	cfg := a.config()
-	dir := filepath.Join(a.abs(cfg.WWWDir), p.Name)
+	www := a.abs(cfg.WWWDir)
+	dir := filepath.Join(www, p.Name)
 	if exists(dir) {
 		return nil, badRequest("%s already exists", dir)
 	}
@@ -342,6 +344,9 @@ func (a *App) startNewProject(p newProject) (*Task, error) {
 			return nil, badRequest("enter the WordPress admin user, password and e-mail")
 		}
 	}
+	if p.Git && toolPath("git") == "" {
+		return nil, badRequest("Git is not installed: install it from the Tools tab, or untick Git")
+	}
 	if p.Title == "" {
 		p.Title = p.Name
 	}
@@ -349,95 +354,149 @@ func (a *App) startNewProject(p newProject) (*Task, error) {
 	if a.tasks.Busy(title) {
 		return nil, badRequest("%s is already running", title)
 	}
+	// Built in a hidden folder (the www scanner skips dot folders) and moved
+	// into place at the end, so the site only appears once it works.
+	stage := filepath.Join(www, ".omni-new-"+p.Name)
 	return a.tasks.Run(title, func(t *Task) error {
-		err := a.createProject(t, *tpl, p, dir)
-		if err != nil && exists(dir) {
-			t.Set("Removing the unfinished project", -1)
-			_ = os.RemoveAll(dir)
+		createdDB := false
+		err := a.createProject(t, *tpl, p, stage, dir, &createdDB)
+		if err != nil {
+			t.Set("Cleaning up", -1)
+			_ = os.RemoveAll(stage)
+			msg := "Removed the unfinished project."
+			if createdDB {
+				_ = a.dropDatabase(a.config(), p.Database)
+				msg = "Removed the unfinished project and its database."
+			}
+			t.AddLog(msg)
 		}
 		return err
 	}), nil
 }
 
-func (a *App) createProject(t *Task, tpl projectTemplate, p newProject, dir string) error {
+type projectStep struct {
+	name string
+	run  func() error
+}
+
+func (a *App) createProject(t *Task, tpl projectTemplate, p newProject, stage, dir string, createdDB *bool) error {
 	cfg := a.config()
+	www := a.abs(cfg.WWWDir)
+	stageName := filepath.Base(stage)
+	host := hostLabel(p.Name) + "." + cfg.TLD
+	_ = os.RemoveAll(stage) // leftover of an interrupted run
+	var plan []projectStep
+	add := func(name string, run func() error) { plan = append(plan, projectStep{name, run}) }
+
 	if tpl.kind != "html" {
-		if err := a.ensureProjectExtensions(t, p.PHP, tpl.kind); err != nil {
-			return err
-		}
+		add("Enable the PHP "+p.PHP+" extensions "+tpl.Name+" needs", func() error { return a.ensureProjectExtensions(t, p.PHP, tpl.kind) })
 	}
 	if tpl.pkg != "" && !exists(a.composerPhar()) {
-		if err := a.installComposer(t); err != nil {
-			return fmt.Errorf("installing Composer: %v", err)
-		}
+		add("Install Composer", func() error { return a.installComposer(t) })
 	}
-	if tpl.Node && a.nodeDir(a.config()) == "" {
-		if err := a.installNode(t, "lts"); err != nil {
-			return fmt.Errorf("installing Node.js: %v", err)
-		}
+	if tpl.Node && a.nodeDir(cfg) == "" {
+		add("Install Node.js LTS", func() error { return a.installNode(t, "lts") })
 	}
 	if p.Database != "" {
-		if err := a.createProjectDatabase(t, p.Database); err != nil {
-			return err
-		}
+		add("Create the MySQL database "+p.Database, func() error {
+			if err := a.createProjectDatabase(t, p.Database); err != nil {
+				return err
+			}
+			*createdDB = true
+			return nil
+		})
 	}
-
 	switch tpl.kind {
-	case "laravel":
-		if err := a.composer(t, p.PHP, a.abs(cfg.WWWDir), "create-project", tpl.pkg+":"+p.Version, p.Name); err != nil {
-			return err
-		}
-		if err := a.configureLaravel(t, p, dir); err != nil {
-			return err
-		}
-	case "symfony":
-		if err := a.composer(t, p.PHP, a.abs(cfg.WWWDir), "create-project", tpl.pkg+":"+p.Version, p.Name); err != nil {
-			return err
-		}
-		if p.WebApp {
-			if err := a.composer(t, p.PHP, dir, "require", "webapp"); err != nil {
-				return err
-			}
-		}
-		if p.Database != "" {
-			if err := setEnvValues(filepath.Join(dir, ".env.local"), map[string]string{"DATABASE_URL": a.symfonyDatabaseURL(p.Database)}); err != nil {
-				return err
-			}
-		}
+	case "laravel", "symfony":
+		add(fmt.Sprintf("Download %s %s and its packages (composer create-project)", tpl.Name, p.Version), func() error {
+			return a.composer(t, p.PHP, www, "create-project", tpl.pkg+":"+p.Version, stageName)
+		})
 	case "wordpress":
-		if err := a.downloadWordPress(t, p.Version, dir); err != nil {
-			return err
-		}
-		if err := a.writeWPConfig(p, dir); err != nil {
-			return err
-		}
+		add("Download WordPress "+p.Version, func() error { return a.downloadWordPress(t, p.Version, stage) })
+		add("Write wp-config.php (database, security keys)", func() error { return a.writeWPConfig(p, stage) })
 	case "php":
-		page := fmt.Sprintf("<?php\n// %s\n\necho '<h1>' . htmlspecialchars(%q) . '</h1>';\necho '<p>PHP ' . PHP_VERSION . '</p>';\n", p.Name, p.Title)
-		if p.Database != "" {
-			page += fmt.Sprintf("\n$db = new PDO('mysql:host=127.0.0.1;port=%d;dbname=%s;charset=utf8mb4', 'root', %s);\necho '<p>Connected to the database %s.</p>';\n",
-				cfg.MySQL.Port, p.Database, phpString(cfg.MySQL.RootPassword), p.Database)
-		}
-		if err := writeNewFile(filepath.Join(dir, "index.php"), page); err != nil {
-			return err
-		}
+		add("Create index.php", func() error {
+			page := fmt.Sprintf("<?php\n// %s\n\necho '<h1>' . htmlspecialchars(%q) . '</h1>';\necho '<p>PHP ' . PHP_VERSION . '</p>';\n", p.Name, p.Title)
+			if p.Database != "" {
+				page += fmt.Sprintf("\n$db = new PDO('mysql:host=127.0.0.1;port=%d;dbname=%s;charset=utf8mb4', 'root', %s);\necho '<p>Connected to the database %s.</p>';\n",
+					cfg.MySQL.Port, p.Database, phpString(cfg.MySQL.RootPassword), p.Database)
+			}
+			return writeNewFile(filepath.Join(stage, "index.php"), page)
+		})
 	case "html":
-		page := fmt.Sprintf("<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>%[1]s</title>\n</head>\n<body>\n  <h1>%[1]s</h1>\n</body>\n</html>\n", htmlEscape(p.Title))
-		if err := writeNewFile(filepath.Join(dir, "index.html"), page); err != nil {
-			return err
+		add("Create index.html", func() error {
+			page := fmt.Sprintf("<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>%[1]s</title>\n</head>\n<body>\n  <h1>%[1]s</h1>\n</body>\n</html>\n", htmlEscape(p.Title))
+			return writeNewFile(filepath.Join(stage, "index.html"), page)
+		})
+	}
+	if tpl.kind == "symfony" && p.WebApp {
+		add("Add the web app packages (composer require webapp)", func() error { return a.composer(t, p.PHP, stage, "require", "webapp") })
+	}
+	if tpl.kind == "symfony" && p.Database != "" {
+		add("Set DATABASE_URL in .env.local", func() error {
+			return setEnvValues(filepath.Join(stage, ".env.local"), map[string]string{"DATABASE_URL": a.symfonyDatabaseURL(p.Database)})
+		})
+	}
+	if tpl.kind == "laravel" {
+		what := "app name, URL, Mailpit"
+		if p.Database != "" {
+			what = "app name, URL, database, Mailpit"
+		}
+		add("Configure .env ("+what+")", func() error { return a.configureLaravel(p, stage) })
+		if p.Database != "" {
+			add("Run the database migrations", func() error { return a.artisan(t, p.PHP, stage, "migrate", "--force") })
 		}
 	}
-
 	if tpl.Node {
-		if err := a.npm(t, p.PHP, dir, "install"); err != nil {
-			return err
-		}
-		if err := a.npm(t, p.PHP, dir, "run", "build"); err != nil {
-			return err
-		}
+		add("Install the npm packages (npm install)", func() error { return a.npm(t, p.PHP, stage, "install") })
+		add("Build the front end (npm run build)", func() error { return a.npm(t, p.PHP, stage, "run", "build") })
+	}
+	if p.Git {
+		add("Initialize a Git repository", func() error { return a.gitInit(t, stage) })
+	}
+	add("Publish http://"+host, func() error { return a.publishProject(p, stage, dir) })
+	if tpl.kind == "wordpress" {
+		add("Install WordPress (site title, admin account)", func() error { return a.installWordPress(t, p) })
 	}
 
-	// Register the vhost with the chosen PHP version and serve it.
-	t.Set("Setting up http://"+hostLabel(p.Name)+"."+cfg.TLD, -1)
+	names := make([]string, len(plan))
+	for i, s := range plan {
+		names[i] = s.name
+	}
+	t.SetSteps(names)
+	for i, s := range plan {
+		t.StepStatus(i, "running")
+		t.AddLog("── " + s.name)
+		if err := s.run(); err != nil {
+			return err
+		}
+		t.StepStatus(i, "done")
+	}
+	scheme := "http"
+	if cfg.SSL {
+		scheme = "https"
+	}
+	t.SetURL(scheme + "://" + host + "/")
+	if tpl.kind == "wordpress" {
+		t.AddLog("Log in at " + scheme + "://" + host + "/wp-admin/ as " + p.AdminUser + ".")
+	}
+	t.Set("Ready: "+scheme+"://"+host, 1)
+	return nil
+}
+
+// publishProject moves the finished project into www and serves it with the
+// chosen PHP version.
+func (a *App) publishProject(p newProject, stage, dir string) error {
+	var err error
+	for i := 0; i < 10; i++ { // antivirus scanners can hold files for a moment
+		if err = os.Rename(stage, dir); err == nil {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if err != nil {
+		return fmt.Errorf("moving the project into place: %v", err)
+	}
 	if err := a.update(func(c *Config) error {
 		sc := c.Sites[p.Name]
 		if sc == nil {
@@ -455,13 +514,29 @@ func (a *App) createProject(t *Task, tpl projectTemplate, p newProject, dir stri
 	if err := a.Apply(true); err != nil {
 		return err
 	}
-	if tpl.kind == "wordpress" {
-		if err := a.installWordPress(t, p); err != nil {
-			return err
-		}
+	if !a.apache.Running() {
+		return a.StartWeb()
 	}
-	t.Set("Ready: http://"+hostLabel(p.Name)+"."+cfg.TLD, 1)
 	return nil
+}
+
+// gitInit creates a repository with a first commit. Without a Git identity
+// (user.name / user.email) the files are only staged.
+func (a *App) gitInit(t *Task, dir string) error {
+	git := toolPath("git")
+	if err := a.runLogged(t, "git init", dir, os.Environ(), git, "init", "-b", "main"); err != nil {
+		return err
+	}
+	if err := a.runLogged(t, "git add", dir, os.Environ(), git, "add", "-A"); err != nil {
+		return err
+	}
+	name, _ := hiddenCommand(git, "config", "user.name").Output()
+	email, _ := hiddenCommand(git, "config", "user.email").Output()
+	if strings.TrimSpace(string(name)) == "" || strings.TrimSpace(string(email)) == "" {
+		t.AddLog("No Git user.name/user.email is set: the files are staged but not committed.")
+		return nil
+	}
+	return a.runLogged(t, "git commit", dir, os.Environ(), git, "commit", "-q", "-m", "Initial commit")
 }
 
 // ensureProjectExtensions switches on the PHP extensions a template needs.
@@ -567,10 +642,10 @@ func (a *App) npm(t *Task, minor, dir string, args ...string) error {
 	return a.runLogged(t, "npm "+strings.Join(args, " "), dir, a.toolEnv(minor), npm, args...)
 }
 
-// runLogged runs a command, shows its latest output line in the task and keeps
-// the full output in logs/projects.log.
+// runLogged runs a command, streams its output into the task (shown live in
+// the dashboard) and keeps the full output in logs/projects.log.
 func (a *App) runLogged(t *Task, label, dir string, env []string, name string, args ...string) error {
-	t.Set(label, -1)
+	t.AddLog("$ " + label)
 	logf, err := os.OpenFile(a.path("logs", "projects.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return err
@@ -596,14 +671,18 @@ func (a *App) runLogged(t *Task, label, dir string, env []string, name string, a
 			if line == "" {
 				continue
 			}
-			last = append(last, line)
-			if len(last) > 8 {
-				last = last[1:]
+			// Keep the last few meaningful lines for the error message, without
+			// the usage synopsis Composer prints after an error.
+			if !strings.Contains(line, "[--") {
+				last = append(last, line)
+				if len(last) > 4 {
+					last = last[1:]
+				}
 			}
-			if len(line) > 120 {
-				line = line[:120] + "…"
+			if len(line) > 200 {
+				line = line[:200] + "…"
 			}
-			t.Set(label+": "+line, -1)
+			t.AddLog(line)
 		}
 		close(done)
 	}()
@@ -618,7 +697,7 @@ func (a *App) runLogged(t *Task, label, dir string, env []string, name string, a
 
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
 
-func (a *App) configureLaravel(t *Task, p newProject, dir string) error {
+func (a *App) configureLaravel(p newProject, dir string) error {
 	cfg := a.config()
 	scheme := "http"
 	if cfg.SSL {
@@ -641,14 +720,7 @@ func (a *App) configureLaravel(t *Task, p newProject, dir string) error {
 		vals["MAIL_HOST"] = "127.0.0.1"
 		vals["MAIL_PORT"] = strconv.Itoa(cfg.Mailpit.SMTPPort)
 	}
-	t.Set("Configuring .env", -1)
-	if err := setEnvValues(filepath.Join(dir, ".env"), vals); err != nil {
-		return err
-	}
-	if p.Database != "" {
-		return a.artisan(t, p.PHP, dir, "migrate", "--force")
-	}
-	return nil
+	return setEnvValues(filepath.Join(dir, ".env"), vals)
 }
 
 // setEnvValues sets KEY=value lines in a dotenv file, uncommenting "# KEY="

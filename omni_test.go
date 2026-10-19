@@ -506,3 +506,21 @@ func TestSetEnvValues(t *testing.T) {
 		t.Fatalf("got %q", b)
 	}
 }
+
+// TestRoutesRegister builds the dashboard's HTTP routes; a duplicate or
+// malformed pattern panics here instead of when Omni Web Server starts.
+func TestRoutesRegister(t *testing.T) {
+	// Not t.TempDir: the app keeps logs/omni.log open, which Windows won't delete.
+	root, err := os.MkdirTemp("", "omni-routes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(root)
+	a, err := NewApp(root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.routes() == nil {
+		t.Fatal("no handler")
+	}
+}

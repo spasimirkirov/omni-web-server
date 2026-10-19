@@ -574,7 +574,7 @@ func (a *App) routes() http.Handler {
 		return map[string]string{"url": u}, err
 	}))
 	mux.HandleFunc("GET /api/templates", handle(func(r *http.Request) (any, error) {
-		return a.templates(r.URL.Query().Get("fresh") != ""), nil
+		return map[string]any{"templates": a.templates(r.URL.Query().Get("fresh") != ""), "git": toolPath("git") != ""}, nil
 	}))
 	mux.HandleFunc("POST /api/projects", handle(func(r *http.Request) (any, error) {
 		var body newProject

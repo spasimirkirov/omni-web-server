@@ -112,6 +112,20 @@ dialog form { padding: 18px; display: flex; flex-direction: column; gap: 12px; m
 dialog h3 { margin: 0; font-size: 16px; }
 dialog ol.steps { margin: 0; padding-left: 20px; max-height: 42vh; overflow: auto; font-size: 13px; }
 dialog ol.steps li { margin-bottom: 6px; }
+dialog.wide { width: min(680px, calc(100vw - 32px)); }
+#task-body { padding: 18px; display: flex; flex-direction: column; gap: 12px; max-height: 88vh; overflow: auto; }
+ul.tsteps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+ul.tsteps li { display: flex; gap: 10px; align-items: center; }
+ul.tsteps li.pending { color: var(--muted); }
+ul.tsteps li.running { font-weight: 600; }
+ul.tsteps li.failed { color: var(--err); font-weight: 600; }
+ul.tsteps .ico { width: 18px; height: 18px; flex: none; border-radius: 50%; display: inline-grid; place-items: center; font-size: 11px; border: 2px solid var(--border); }
+ul.tsteps li.done .ico { background: var(--ok); border-color: var(--ok); color: #fff; }
+ul.tsteps li.failed .ico { background: var(--err); border-color: var(--err); color: #fff; }
+ul.tsteps li.running .ico { border-color: var(--accent); border-top-color: transparent; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+pre.tlog { margin: 0; background: var(--panel-2); border-radius: 8px; padding: 10px; font-size: 11.5px; line-height: 1.45; height: 190px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+@media (prefers-reduced-motion: reduce) { ul.tsteps li.running .ico { animation: none; border-top-color: var(--accent); } }
 .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 8px; font-size: 13px; z-index: 50; max-width: calc(100vw - 32px); box-shadow: 0 4px 16px rgba(0,0,0,.2); }
 .toast.error { background: var(--err); color: #fff; }
 .empty { padding: 28px; text-align: center; color: var(--muted); }
@@ -151,6 +165,7 @@ dialog ol.steps li { margin-bottom: 6px; }
 </main>
 
 <dialog id="dlg"><form method="dialog" id="dlg-form"></form></dialog>
+<dialog id="task-dlg" class="wide"><div id="task-body"></div></dialog>
 
 <script>
 "use strict";
@@ -227,7 +242,7 @@ function renderNotices() {
   const tasks = S.tasks || [];
   $("#tasks").innerHTML = tasks.length ? `<div class="panel" style="margin-bottom:12px">${tasks.map(t => `
     <div class="task">
-      <div class="row"><strong>${esc(t.title)}</strong><span class="muted small">${esc(t.status === "running" ? t.message : t.status === "done" ? (t.message || "Done") : "Failed")}</span></div>
+      <div class="row"><strong>${esc(t.title)}</strong>${t.steps ? `<button class="btn small" data-task-open="${t.id}" data-site="${esc((t.title.match(/^Create (.+) \(/) || [])[1] || "")}">Details</button>` : ""}<span class="muted small">${esc(t.status === "running" ? t.message : t.status === "done" ? (t.message || "Done") : "Failed")}</span></div>
       ${t.status === "running" ? `<div class="progress ${t.progress < 0 ? "indet" : ""}"><div style="width:${Math.max(0, t.progress) * 100}%"></div></div>` : ""}
       ${t.error ? `<div class="err">${esc(t.error)}</div>` : ""}
     </div>`).join("")}</div>` : "";
@@ -665,11 +680,54 @@ function phpOK(constraint, minor) {
 
 const slugDB = s => s.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 64);
 
+// taskDialog follows a multi-step task (such as creating a project) in a
+// modal: the steps with their state, the live command output and, at the end,
+// buttons to open the result. Closing it leaves the task running.
+let taskTimer = null;
+function taskDialog(id, siteName) {
+  const dlg = $("#task-dlg");
+  let follow = true, logOpen;
+  const draw = t => {
+    const running = t.status === "running";
+    const icon = { done: "✓", failed: "✕" };
+    const pre = $("#task-log"), det = $("#task-body details");
+    if (pre) follow = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 8;
+    if (det) logOpen = det.open;
+    const openLog = logOpen === undefined ? (running || !!t.error) : logOpen || !!t.error;
+    $("#task-body").innerHTML = `
+      <h3 style="margin:0">${esc(t.title)}</h3>
+      <div class="progress ${running && !t.steps ? "indet" : ""}"><div style="width:${Math.max(0, t.progress) * 100}%"></div></div>
+      ${t.steps ? `<ul class="tsteps">${t.steps.map(s => `<li class="${s.status}"><span class="ico">${icon[s.status] || ""}</span>${esc(s.name)}</li>`).join("")}</ul>` : `<div class="small muted">${esc(t.message)}</div>`}
+      ${t.error ? `<div class="notice error">${esc(t.error)}</div>` : ""}
+      ${t.status === "done" ? `<div class="notice info"><span><strong>Ready.</strong> ${t.url ? `Your site is at <a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(t.url)}</a>` : ""}</span></div>` : ""}
+      <details ${openLog ? "open" : ""}><summary class="small muted">Output</summary><pre class="tlog" id="task-log">${esc((t.log || []).join("\n")) || "…"}</pre></details>
+      <div class="row" style="justify-content:flex-end">
+        ${running ? `<span class="small muted" style="margin-right:auto">You can close this window: the work goes on in the background.</span><button class="btn" data-task-close>Run in background</button>` : ""}
+        ${t.status === "error" ? `<button class="btn" data-log-open="projects">Open the projects log</button><button class="btn primary" data-task-close>Close</button>` : ""}
+        ${t.status === "done" ? `${siteName ? `<button class="btn" data-site-open="${esc(siteName)}" data-what="folder">Open folder</button>` : ""}<button class="btn" data-task-close>Close</button>${t.url ? `<a class="btn primary" href="${esc(t.url)}" target="_blank" rel="noopener">Open site</a>` : ""}` : ""}
+      </div>`;
+    const log = $("#task-log");
+    if (log && follow) log.scrollTop = log.scrollHeight;
+  };
+  const tick = async () => {
+    let t;
+    try { t = await api("GET", "/api/tasks/" + id); } catch (e) { clearInterval(taskTimer); return; }
+    draw(t);
+    if (t.status !== "running") { clearInterval(taskTimer); refresh(true); }
+  };
+  clearInterval(taskTimer);
+  dlg.onclose = () => clearInterval(taskTimer);
+  $("#task-body").innerHTML = "";
+  dlg.showModal();
+  tick();
+  taskTimer = setInterval(tick, 1000);
+}
+
 // newProjectDialog creates a project in www from a template, fully set up:
 // version, PHP version, database and (for WordPress) the admin account.
 async function newProjectDialog() {
-  let tpls;
-  try { tpls = await api("GET", "/api/templates"); } catch (e) { return toast(e.message, true); }
+  let tpls, gitOK;
+  try { const r = await api("GET", "/api/templates"); tpls = r.templates; gitOK = r.git; } catch (e) { return toast(e.message, true); }
   const phps = (S.php || []).map(p => p.minor);
   const defPHP = S.settings.default_php;
   const mysqlOK = (S.services.find(s => s.name === "mysql") || {}).installed;
@@ -682,7 +740,8 @@ async function newProjectDialog() {
     <label id="np-php-wrap">PHP version<br><select name="php" class="wide">${phps.map(m => `<option ${m === defPHP ? "selected" : ""}>${esc(m)}</option>`).join("")}</select></label>
     <div class="err small" id="np-php-warn"></div>
     <div id="np-db"></div>
-    <div id="np-extra"></div>`, "Create");
+    <div id="np-extra"></div>
+    ${gitOK ? `<label class="row" style="gap:8px"><input type="checkbox" name="git" checked> Initialize a Git repository (git init + first commit)</label>` : `<div class="hint">Install Git from the Tools tab to start projects with a Git repository.</div>`}`, "Create");
   const form = $("#dlg-form"), $f = n => form.querySelector(`[name="${n}"]`);
   let dbTouched = false;
   const update = () => {
@@ -736,8 +795,9 @@ async function newProjectDialog() {
   const t = tpls.find(x => x.id === v.template);
   const body = { template: v.template, version: v.version || "", name: v.name, php: t.id === "html" ? "" : v.php, title: v.title || v.name,
     database: t.database && mysqlOK && (t.id === "wordpress" || v.use_db) ? v.database : "",
-    admin_user: v.admin_user || "", admin_password: v.admin_password || "", admin_email: v.admin_email || "", webapp: !!v.webapp };
-  await act("POST", "/api/projects", body, "Creating " + v.name + "…");
+    admin_user: v.admin_user || "", admin_password: v.admin_password || "", admin_email: v.admin_email || "", webapp: !!v.webapp, git: !!v.git };
+  const task = await act("POST", "/api/projects", body);
+  if (task && task.id) taskDialog(task.id, v.name);
 }
 
 async function startInstall(body) {
@@ -779,6 +839,9 @@ document.addEventListener("click", async e => {
     }
     if (d.installUrl) return installDialog(d.installUrl);
     if (d.import !== undefined) return importDialog(importCache[+d.import]);
+    if (d.taskClose !== undefined) return $("#task-dlg").close();
+    if (d.logOpen) { $("#task-dlg").close(); logName = d.logOpen; return showTab("logs"); }
+    if (d.taskOpen) return taskDialog(+d.taskOpen, d.site || "");
     if (d.log) { logName = d.log; return showTab("logs"); }
     if (d.siteOpen) return act("POST", `/api/sites/${enc(d.siteOpen)}/open`, { what: d.what });
     if (d.siteRemove) { if (confirm(`Remove the vhost ${d.siteRemove}? The folder is not deleted.`)) await act("DELETE", `/api/sites/${enc(d.siteRemove)}`); return; }
