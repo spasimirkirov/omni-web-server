@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/spasimirkirov/omni-web-server/releases/latest"><img src="https://img.shields.io/github/v/release/spasimirkirov/omni-web-server?label=download" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/status-in%20development-orange" alt="Status: in development">
   <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?logo=windows" alt="Windows 10 and 11">
   <img src="https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go&logoColor=white" alt="Go 1.22+">
 </p>
@@ -51,9 +51,11 @@ it up.
 
 ## Install
 
-1. Download `OmniWebServer-<version>-Setup.exe` from
-   [Releases](https://github.com/spasimirkirov/omni-web-server/releases/latest)
-   and run it.
+> Omni Web Server is still in development, so there are no published
+> releases yet. Build the installer yourself (see
+> [Building from source](#building-from-source)); it ends up in `dist\`.
+
+1. Run `OmniWebServer-<version>-Setup.exe`.
 2. **Program folder**: for example `C:\OmniWebServer`. Use a short path
    without spaces. Avoid *Program Files*, because normal users can't write
    to it.
