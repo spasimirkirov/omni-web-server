@@ -18,8 +18,9 @@ func main() {
 	os.Exit(runCLI(root, args))
 }
 
-// resolveRoot picks the Omni Web Server folder: --root <dir>, $OMNI_HOME, or the
-// folder that contains the executable.
+// resolveRoot picks the Omni Web Server folder: --root <dir>, the executable's
+// folder when it holds omni.json (an installed copy always uses its own
+// folder), $OMNI_WEB_SERVER_HOME, or else the executable's folder.
 func resolveRoot(args *[]string) string {
 	for i := 0; i < len(*args); i++ {
 		if (*args)[i] == "--root" && i+1 < len(*args) {
@@ -28,15 +29,21 @@ func resolveRoot(args *[]string) string {
 			return absPath(root)
 		}
 	}
-	if env := os.Getenv("OMNI_HOME"); env != "" {
-		return absPath(env)
-	}
-	exe, err := os.Executable()
-	if err == nil {
+	exeDir := ""
+	if exe, err := os.Executable(); err == nil {
 		if real, err := filepath.EvalSymlinks(exe); err == nil {
 			exe = real
 		}
-		return filepath.Dir(exe)
+		exeDir = filepath.Dir(exe)
+	}
+	if exeDir != "" && exists(filepath.Join(exeDir, configFile)) {
+		return exeDir
+	}
+	if env := os.Getenv(homeEnv); env != "" {
+		return absPath(env)
+	}
+	if exeDir != "" {
+		return exeDir
 	}
 	wd, _ := os.Getwd()
 	return wd

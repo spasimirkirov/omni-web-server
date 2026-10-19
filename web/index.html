@@ -410,7 +410,7 @@ async function renderTools(reload) {
       <label>Add to PATH</label><div><label class="switch"><input type="checkbox" data-setting="add_to_path" ${S.settings.add_to_path ? "checked" : ""}><span></span></label>
         <div class="hint">Puts <code class="mono">${esc(S.shims_dir)}</code> on your user PATH, so terminals, PhpStorm and VS Code find:</div>
         <div class="mono small" style="margin-top:4px">${(T.shims || []).map(esc).join(" · ") || "nothing yet"}</div></div>
-      ${win ? `<label>Registry</label><div class="small"><code>HKCU\\Software\\OmniWebServer</code> lists the install folder, www folder and the path of every PHP version, MySQL, Apache, Redis, Mailpit and Node.js. <code>%OMNI_HOME%</code> points to the install folder.</div>` : ""}
+      ${win ? `<label>Registry</label><div class="small"><code>HKCU\\Software\\OmniWebServer</code> lists the install folder, www folder and the path of every PHP version, MySQL, Apache, Redis, Mailpit and Node.js. <code>%OMNI_WEB_SERVER_HOME%</code> points to the install folder.</div>` : ""}
     </div></div>
     ${Object.entries(cats).map(([cat, list]) => `
       <h2>${esc(cat)}</h2>

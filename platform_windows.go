@@ -217,7 +217,7 @@ if ($p -and (($p -split ';') -contains $d)) { [Environment]::SetEnvironmentVaria
 const registryKey = `HKCU:\Software\OmniWebServer`
 
 // writeRegistry replaces HKCU\Software\OmniWebServer with the given values and
-// sets the OMNI_HOME user variable, so IDEs and scripts can find the stack.
+// sets the OMNI_WEB_SERVER_HOME user variable, so IDEs and scripts can find the stack.
 func writeRegistry(vals map[string]map[string]string) error {
 	var b strings.Builder
 	// Replace the subkeys (PHP versions come and go) but keep values other tools
@@ -239,13 +239,17 @@ func writeRegistry(vals map[string]map[string]string) error {
 		}
 	}
 	if home := vals[""]["InstallDir"]; home != "" {
-		fmt.Fprintf(&b, "[Environment]::SetEnvironmentVariable('OMNI_HOME', %s, 'User')\n", psQuote(home))
+		fmt.Fprintf(&b, "[Environment]::SetEnvironmentVariable('%s', %s, 'User')\n", homeEnv, psQuote(home))
+		fmt.Fprintf(&b, "if ([Environment]::GetEnvironmentVariable('%[1]s', 'User') -eq %[2]s) { [Environment]::SetEnvironmentVariable('%[1]s', $null, 'User') }\n", legacyHomeEnv, psQuote(home))
 	}
 	return runPowerShell(b.String(), false)
 }
 
 func removeRegistry() error {
-	return runPowerShell(fmt.Sprintf("Remove-Item -Path %s -Recurse -ErrorAction SilentlyContinue\n[Environment]::SetEnvironmentVariable('OMNI_HOME', $null, 'User')", psQuote(registryKey)), false)
+	script := fmt.Sprintf("Remove-Item -Path %s -Recurse -ErrorAction SilentlyContinue\n[Environment]::SetEnvironmentVariable('%s', $null, 'User')\n", psQuote(registryKey), homeEnv)
+	// The old name only goes when it points to an Omni Web Server folder.
+	script += fmt.Sprintf("$v = [Environment]::GetEnvironmentVariable('%[1]s', 'User'); if ($v -and (Test-Path (Join-Path $v 'omni.json'))) { [Environment]::SetEnvironmentVariable('%[1]s', $null, 'User') }", legacyHomeEnv)
+	return runPowerShell(script, false)
 }
 
 // missingRuntimes reports a missing Visual C++ runtime, needed by Apache, PHP and MySQL builds.

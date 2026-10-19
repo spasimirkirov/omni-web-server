@@ -281,8 +281,7 @@ func (c *client) run(cmd string, args []string) error {
 			if err != nil {
 				return err
 			}
-			p := exec.Command(exe, "serve", "--no-browser")
-			p.Env = append(os.Environ(), "OMNI_HOME="+c.root)
+			p := exec.Command(exe, "--root", c.root, "serve", "--no-browser")
 			detach(p)
 			if err := p.Start(); err != nil {
 				return err

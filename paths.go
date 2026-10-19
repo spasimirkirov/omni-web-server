@@ -14,6 +14,14 @@ import (
 // every terminal and IDE, plus registry values under
 // HKCU\Software\OmniWebServer that describe where everything lives.
 
+// homeEnv is the user environment variable that points to the install folder.
+// It used to be OMNI_HOME, which is too generic a name; that one is removed
+// when it points to this install.
+const (
+	homeEnv       = "OMNI_WEB_SERVER_HOME"
+	legacyHomeEnv = "OMNI_HOME"
+)
+
 type shim struct {
 	target string   // executable to run
 	args   []string // fixed arguments before the user's
@@ -164,6 +172,8 @@ func (a *App) syncDiscovery(cfg *Config) []string {
 		}
 	}
 	sig.WriteString(fmt.Sprintf("path=%v\n", cfg.AddToPath))
+	// Rewrite when the variable points elsewhere (e.g. another copy wrote it).
+	sig.WriteString(fmt.Sprintf("home=%v\n", os.Getenv(homeEnv) == a.root && os.Getenv(legacyHomeEnv) != a.root))
 	stamp := a.path("tmp", "discovery.sig")
 	if old, err := os.ReadFile(stamp); err == nil && string(old) == sig.String() {
 		return nil

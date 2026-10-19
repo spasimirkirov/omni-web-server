@@ -76,7 +76,20 @@ save 900 1
 save 300 10
 appendonly no
 logfile ""
-`, cfg.Redis.Port, loopbackAddrs(" "), slash(a.path("data", "redis")))
+`, cfg.Redis.Port, loopbackAddrs(" "), a.redisPath(cfg, a.path("data", "redis")))
+}
+
+// redisPath writes a path the way redis-server reads it. The Windows builds
+// (redis-windows) are compiled with MSYS2 and take "C:/x" as a relative path,
+// so they get "/cygdrive/c/x" instead.
+func (a *App) redisPath(cfg *Config, p string) string {
+	p = slash(p)
+	dir := filepath.Dir(a.redisBin(cfg))
+	msys := exists(filepath.Join(dir, "msys-2.0.dll")) || exists(filepath.Join(dir, "cygwin1.dll"))
+	if msys && len(p) > 2 && p[1] == ':' {
+		return "/cygdrive/" + strings.ToLower(p[:1]) + p[2:]
+	}
+	return p
 }
 
 // hasIPv6Loopback reports whether ::1 can be bound. Servers listen on it too
@@ -108,13 +121,13 @@ func (a *App) redisCmd(cfg *Config) (*exec.Cmd, error) {
 	}
 	conf := a.renderRedisConf(cfg)
 	if custom := a.path("etc", "redis", "custom.conf"); exists(custom) {
-		conf += fmt.Sprintf("include \"%s\"\n", slash(custom))
+		conf += fmt.Sprintf("include \"%s\"\n", a.redisPath(cfg, custom))
 	}
 	confPath := a.path("etc", "redis", "redis.conf")
 	if _, err := writeIfChanged(confPath, []byte(conf)); err != nil {
 		return nil, err
 	}
-	cmd := hiddenCommand(bin, confPath)
+	cmd := hiddenCommand(bin, a.redisPath(cfg, confPath))
 	cmd.Dir = filepath.Dir(bin)
 	return cmd, nil
 }

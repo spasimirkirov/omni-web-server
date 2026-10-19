@@ -224,7 +224,7 @@ D:\Projects\                your projects (www), wherever you chose
 
 Other programs can find Omni Web Server through the registry key
 `HKCU\Software\OmniWebServer`. It holds the install folder, the www folder and
-the paths of every installed component. The `%OMNI_HOME%` environment
+the paths of every installed component. The `%OMNI_WEB_SERVER_HOME%` environment
 variable points to the install folder.
 
 ## How it works

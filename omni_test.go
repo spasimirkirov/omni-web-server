@@ -427,3 +427,20 @@ func TestShimsAndPendingOrder(t *testing.T) {
 		t.Fatalf("pending order: %v", items)
 	}
 }
+
+func TestRedisPathMSYS(t *testing.T) {
+	root := t.TempDir()
+	bin := filepath.Join(root, "bin", "redis", "redis-8")
+	os.MkdirAll(bin, 0o755)
+	os.WriteFile(filepath.Join(bin, exeName("redis-server")), nil, 0o755)
+	a := &App{root: root}
+	cfg := defaultConfig()
+	cfg.Redis.Dir = "bin/redis/redis-8"
+	if got := a.redisPath(cfg, `C:\x\redis.conf`); got != "C:/x/redis.conf" {
+		t.Fatalf("native build: %q", got)
+	}
+	os.WriteFile(filepath.Join(bin, "msys-2.0.dll"), nil, 0o644)
+	if got := a.redisPath(cfg, `C:\x\redis.conf`); got != "/cygdrive/c/x/redis.conf" {
+		t.Fatalf("MSYS build: %q", got)
+	}
+}
