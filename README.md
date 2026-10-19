@@ -50,7 +50,7 @@ it up.
 | **Databases** | MySQL 8.4 or MariaDB 11.4, ready to use with any client (HeidiSQL, DBeaver, PhpStorm). Adminer is optional. |
 | **Mail and cache** | **Mailpit** catches every e-mail your apps send. **Redis** handles cache, queues and sessions. |
 | **Composer and Node.js** | Several Node.js versions with one default, and no separate installers. |
-| **Same PHP everywhere** | `omni`, `php`, `composer`, `node`, `mysql` and other commands are added to your **PATH**. Terminals, VS Code and PhpStorm use the same PHP and `php.ini` as the web server. |
+| **Same PHP everywhere** | `php`, `composer`, `node`, `mysql` and other commands are added to your **PATH**. Terminals, VS Code and PhpStorm use the same PHP and `php.ini` as the web server. |
 | **Wildcard DNS and HTTPS** | Subdomains such as `api.blog.local` work. One click gives you `https://` with a locally trusted CA. |
 | **Share a site** | One click gives a public `https://….trycloudflare.com` URL for webhooks or showing a client. |
 | **Developer apps** | Git, VS Code, PhpStorm, HeidiSQL, DBeaver, Windows Terminal, Docker Desktop and others install through winget. |
@@ -175,8 +175,10 @@ certificate. This includes one level of subdomains, such as
 
 ## Command line
 
-`omni help` lists every command. Most commands talk to the running server,
-which you start with `omni start` or the shortcut.
+Everything the dashboard does is also available from `omni.exe` in the install
+folder (`C:\OmniWebServer\omni.exe help`). It is not added to PATH, so it
+can't clash with another program's `omni` command. Most commands talk to the
+running server, which you start with `omni.exe start` or the shortcut.
 
 ```text
 omni start | stop | quit           start in background + services | stop services | exit
@@ -208,7 +210,7 @@ C:\OmniWebServer\
   omniw.exe                 the same without a console window (shortcuts, autostart)
   omni.json                 settings and per-project choices
   bin\apache\ bin\php\php-8.4.x\ bin\mysql\ bin\node\ bin\redis\ bin\mailpit\ bin\composer\
-  bin\shims\                omni, php, composer, node, npm, mysql, redis-cli ... (on PATH)
+  bin\shims\                php, composer, node, npm, mysql, redis-cli ... (on PATH)
   etc\apache\httpd.conf     generated; your own directives go in etc\apache\custom\*.conf
   etc\php\8.4\php.ini       generated per version from php.ini-development + your settings
   etc\mysql\my.ini          generated; overrides go in etc\mysql\custom.ini
