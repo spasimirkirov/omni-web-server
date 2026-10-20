@@ -13,7 +13,8 @@ for p in "/c/Program Files (x86)/NSIS/makensis.exe" "/c/Program Files/NSIS/maken
 done
 [ -n "$MAKENSIS" ] || { echo "makensis not found: install NSIS 3 (https://nsis.sourceforge.io)" >&2; exit 1; }
 
-rm -rf dist/OmniWebServer
+# Start from an empty dist, so only this version's files are left.
+rm -rf dist
 mkdir -p dist/OmniWebServer
 go test ./...
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/OmniWebServer/omni.exe .
