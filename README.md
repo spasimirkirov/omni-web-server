@@ -319,7 +319,7 @@ the release. **Actions → Build → Run workflow** builds them without a releas
 
 ```sh
 go run github.com/tc-hib/go-winres@v0.3.3 simply --arch amd64 --icon logo.png --manifest cli \
-  --product-name "Omni Web Server" --product-version 1.1.0 --file-version 1.1.0.0 \
+  --product-name "Omni Web Server" --product-version 1.2.0 --file-version 1.2.0.0 \
   --file-description "Omni Web Server - Apache, PHP, MySQL for Windows" \
   --copyright "Omni Web Server" --original-filename omni.exe
 ```
