@@ -358,24 +358,6 @@ func TestSiteCertificates(t *testing.T) {
 	}
 }
 
-func TestPickNode(t *testing.T) {
-	rels := []nodeRelease{
-		{Version: "v26.1.0", LTS: []byte("false"), Files: []string{"win-x64-zip"}},
-		{Version: "v24.22.0", LTS: []byte(`"Krypton"`), Files: []string{"win-x64-zip"}},
-		{Version: "v22.23.3", LTS: []byte(`"Jod"`), Files: []string{"win-x64-zip"}},
-		{Version: "v22.23.2", LTS: []byte(`"Jod"`), Files: []string{"linux-x64"}},
-	}
-	cases := map[string]string{"": "24.22.0", "lts": "24.22.0", "22": "22.23.3", "26": "26.1.0", "v22.23.3": "22.23.3"}
-	for in, want := range cases {
-		if got, err := pickNode(rels, in); err != nil || got != want {
-			t.Errorf("pickNode(%q) = %q, %v; want %q", in, got, err, want)
-		}
-	}
-	if _, err := pickNode(rels, "18"); err == nil {
-		t.Error("missing version must fail")
-	}
-}
-
 func TestXdebugAndTunnelPatterns(t *testing.T) {
 	page := `<a href="/files/php_xdebug-3.4.5-8.3-nts-vs16-x86_64.dll">a</a>
 <a href="/files/php_xdebug-3.4.5-8.3-vs16-x86_64.dll">ts</a>

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -50,78 +49,22 @@ func (a *App) installComposer(t *Task) error {
 
 // ---- Node.js ----
 
-type nodeRelease struct {
-	Version string          `json:"version"`
-	LTS     json.RawMessage `json:"lts"`
-	Files   []string        `json:"files"`
-}
-
-func (r nodeRelease) isLTS() bool { return len(r.LTS) > 0 && string(r.LTS) != "false" }
-
-// pickNode resolves "" (latest LTS), "22" (latest 22.x) or "22.11.0".
-func pickNode(rels []nodeRelease, want string) (string, error) {
-	want = strings.TrimPrefix(want, "v")
-	for _, r := range rels { // index.json is newest first
-		v := strings.TrimPrefix(r.Version, "v")
-		if !contains(r.Files, "win-x64-zip") {
-			continue
-		}
-		switch {
-		case want == "" || strings.EqualFold(want, "lts"):
-			if r.isLTS() {
-				return v, nil
-			}
-		case v == want || strings.HasPrefix(v, want+"."):
-			return v, nil
-		}
-	}
-	return "", fmt.Errorf("no Node.js release matches %q", want)
-}
-
-func (a *App) installNode(t *Task, want string) error {
-	if runtime.GOOS != "windows" {
-		return errors.New("on Linux/macOS install Node.js with your package manager or fnm")
-	}
-	t.Set("Looking up Node.js releases", -1)
-	body, err := fetchText("https://nodejs.org/dist/index.json")
-	if err != nil {
-		return err
-	}
-	var rels []nodeRelease
-	if err := json.Unmarshal([]byte(body), &rels); err != nil {
-		return err
-	}
-	v, err := pickNode(rels, want)
-	if err != nil {
-		return err
-	}
-	name := "node-v" + v + "-win-x64"
-	sha := ""
-	if sums, err := fetchText("https://nodejs.org/dist/v" + v + "/SHASUMS256.txt"); err == nil {
-		for _, l := range strings.Split(sums, "\n") {
-			if f := strings.Fields(l); len(f) == 2 && f[1] == name+".zip" {
-				sha = f[0]
-			}
-		}
-	}
-	dir, err := a.installZip(t, "https://nodejs.org/dist/v"+v+"/"+name+".zip", "", sha, "node", name, exeName("node"))
-	if err != nil {
-		return err
-	}
-	return a.update(func(c *Config) error {
-		c.Node.Versions[v] = a.rel(dir)
-		if c.Node.Default == "" || compareVersions(v, c.Node.Default) > 0 {
-			c.Node.Default = v
-		}
-		return nil
-	})
-}
-
+// nodeDir is the bundled Node.js (bin/node), which older versions installed.
+// New installs use a system-wide Node.js from the Tools tab instead.
 func (a *App) nodeDir(cfg *Config) string {
 	if d, ok := cfg.Node.Versions[cfg.Node.Default]; ok {
 		return a.abs(d)
 	}
 	return ""
+}
+
+// nodeBinDir is the Node.js that projects use: the system-wide one when it is
+// installed, otherwise a bundled one left by an older version.
+func (a *App) nodeBinDir(cfg *Config) string {
+	if p := toolPath("node"); p != "" {
+		return filepath.Dir(p)
+	}
+	return a.nodeDir(cfg)
 }
 
 // ---- Xdebug (Windows builds from xdebug.org) ----
@@ -186,6 +129,13 @@ type devTool struct {
 var devTools = []devTool{
 	{ID: "git", Name: "Git for Windows", Category: "Essentials", Description: "Version control, plus Git Bash.", Winget: "Git.Git", URL: "https://git-scm.com/download/win",
 		detect: []string{"git", `%ProgramFiles%\Git\cmd\git.exe`}},
+	// Languages are installed system-wide, never inside Omni Web Server's folder:
+	// projects (venvs, node_modules) keep working when the server is removed.
+	// Not looked up on PATH: that finds our own shims or the Microsoft Store stub.
+	{ID: "node", Name: "Node.js LTS", Category: "Languages", Description: "JavaScript runtime with npm, installed system-wide. Vite and the Laravel starter kits need it.", Winget: "OpenJS.NodeJS.LTS", URL: "https://nodejs.org/",
+		detect: []string{`%ProgramFiles%\nodejs\node.exe`, `%LOCALAPPDATA%\Programs\nodejs\node.exe`, `%NVM_SYMLINK%\node.exe`, `C:\nvm4w\nodejs\node.exe`}},
+	{ID: "python", Name: "Python 3.13", Category: "Languages", Description: "Installed system-wide, so virtual environments (.venv) don't depend on the web server.", Winget: "Python.Python.3.13", URL: "https://www.python.org/downloads/windows/",
+		detect: []string{`%LOCALAPPDATA%\Programs\Python\Python3*\python.exe`, `%ProgramFiles%\Python3*\python.exe`}},
 	{ID: "terminal", Name: "Windows Terminal", Category: "Essentials", Description: "Tabs for cmd, PowerShell, Git Bash and WSL.", Winget: "Microsoft.WindowsTerminal", URL: "https://aka.ms/terminal",
 		detect: []string{"wt", `%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe`}},
 	{ID: "vscode", Name: "Visual Studio Code", Category: "Editors", Description: "Editor; add the PHP Intelephense and PHP Debug extensions.", Winget: "Microsoft.VisualStudioCode", URL: "https://code.visualstudio.com/",

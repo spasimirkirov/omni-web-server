@@ -48,14 +48,14 @@ Usage: omni.exe [command]
 
   install apache|mysql|mariadb|adminer|mailpit|redis [url]   download a component
   install composer               download Composer (shim: composer)
-  install node [ver]             download Node.js (latest LTS, "22" or "22.11.0")
+  install node                   Node.js LTS, system-wide via winget (same as: install tool node)
   install xdebug <php-ver>       download Xdebug for a PHP version and enable it
   install tool <id>              install a Windows app with winget (see "tools")
   migrate [laragon|xampp] [--root <dir>] [--password <pw>] [--yes]
                                  import projects and databases from Laragon or XAMPP
                                  and take over as the main server (shows the steps first)
   tools                          list developer tools and whether they are installed
-  node [default <ver>]           list Node.js versions / choose the default
+  node [default <ver>]           bundled Node.js from older versions: list / choose the default
   share <site> [off]             public https URL for a site (Cloudflare quick tunnel)
 
   init [--www <folder>] [--install apache,php,mysql,...]
@@ -359,11 +359,9 @@ func (c *client) run(cmd string, args []string) error {
 			composer = st.Tools.Composer
 		}
 		fmt.Fprintf(tw, "composer\tComposer\t%s\n", composer)
-		node := "not installed (omni install node)"
-		if st.Tools.NodeDefault != "" {
-			node = st.Tools.NodeDefault
+		if st.Tools.NodeDefault != "" { // left by an older version
+			fmt.Fprintf(tw, "node\tNode.js (bundled)\t%s\n", st.Tools.NodeDefault)
 		}
-		fmt.Fprintf(tw, "node\tNode.js\t%s\n", node)
 		for _, t := range tools {
 			status := "not installed (omni install tool " + t.ID + ")"
 			if t.Installed {

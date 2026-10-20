@@ -511,6 +511,9 @@ func (a *App) startNewProject(p newProject) (*Task, error) {
 			return nil, badRequest("enter the WordPress admin user, password and e-mail")
 		}
 	}
+	if tpl.Node && a.nodeBinDir(cfg) == "" {
+		return nil, badRequest("%s needs Node.js: install it on the Tools tab (it is installed system-wide), then create the project", tpl.Name)
+	}
 	if p.Git && toolPath("git") == "" {
 		return nil, badRequest("Git is not installed: install it from the Tools tab, or untick Git")
 	}
@@ -560,9 +563,6 @@ func (a *App) createProject(t *Task, tpl projectTemplate, p newProject, stage, d
 	}
 	if tpl.pkg != "" && !exists(a.composerPhar()) {
 		add("Install Composer", func() error { return a.installComposer(t) })
-	}
-	if tpl.Node && a.nodeDir(cfg) == "" {
-		add("Install Node.js LTS", func() error { return a.installNode(t, "lts") })
 	}
 	if p.Database != "" {
 		add("Create the MySQL database "+p.Database, func() error {
@@ -779,7 +779,7 @@ func (a *App) toolEnv(minor string) []string {
 	if p, ok := cfg.PHP[minor]; ok {
 		dirs = append(dirs, filepath.Dir(a.phpCLI(p)))
 	}
-	if d := a.nodeDir(cfg); d != "" {
+	if d := a.nodeBinDir(cfg); d != "" {
 		dirs = append(dirs, d)
 	}
 	dirs = append(dirs, a.path("bin", "shims"))
@@ -820,9 +820,10 @@ func (a *App) artisan(t *Task, minor, dir string, args ...string) error {
 }
 
 func (a *App) npm(t *Task, minor, dir string, args ...string) error {
-	npm := filepath.Join(a.nodeDir(a.config()), "npm.cmd")
+	dir0 := a.nodeBinDir(a.config())
+	npm := filepath.Join(dir0, "npm.cmd")
 	if !exists(npm) {
-		npm = filepath.Join(a.nodeDir(a.config()), "npm")
+		npm = filepath.Join(dir0, "npm")
 	}
 	return a.runLogged(t, "npm "+strings.Join(args, " "), dir, a.toolEnv(minor), npm, args...)
 }

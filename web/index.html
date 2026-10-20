@@ -536,12 +536,10 @@ async function renderTools(reload) {
         <div class="meta">PHP package manager. <code>composer</code> runs with your default PHP and its php.ini.</div>
         <div class="actions">${T.composer ? `<button class="btn" data-install="composer">Update</button>` : `<button class="btn primary" data-install="composer">Install Composer</button>`}</div>
       </div>
-      <div class="panel svc">
-        <div class="top"><span class="dot ${T.node_default ? "running" : ""}"></span><span class="name">Node.js</span><span class="state">${T.node_default ? "v" + esc(T.node_default) : "not installed"}</span></div>
-        <div class="meta">For Vite, npm and npx. Several versions can be installed; the default is on PATH.</div>
-        ${T.node && T.node.length > 1 ? `<div class="row"><label class="small muted">Default</label><select data-node-default>${T.node.map(v => `<option ${v === T.node_default ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></div>` : ""}
-        <div class="actions">${win ? `<button class="btn ${T.node_default ? "" : "primary"}" data-install="node" data-version="lts">Install latest LTS</button><button class="btn" data-act="node-version">Other version…</button>` : `<span class="muted small">Use your package manager or fnm on this OS.</span>`}</div>
-      </div>
+      ${T.node_default ? `<div class="panel svc">
+        <div class="top"><span class="dot running"></span><span class="name">Node.js (bundled)</span><span class="state">v${esc(T.node_default)}</span></div>
+        <div class="meta">Installed inside Omni Web Server by an older version. Projects use it until you install Node.js system-wide under <b>Languages</b> below; then the system one is used.</div>
+      </div>` : ""}
       <div class="panel svc">
         <div class="top"><span class="dot"></span><span class="name">Xdebug</span><span class="state">per PHP version</span></div>
         <div class="meta">Step debugging for VS Code / PhpStorm (port 9003, start with <code>XDEBUG_TRIGGER</code> or the browser extension).</div>
@@ -559,7 +557,7 @@ async function renderTools(reload) {
       <label>Add to PATH</label><div><label class="switch"><input type="checkbox" data-setting="add_to_path" ${S.settings.add_to_path ? "checked" : ""}><span></span></label>
         <div class="hint">Puts <code class="mono">${esc(S.shims_dir)}</code> on your user PATH, so terminals, PhpStorm and VS Code find:</div>
         <div class="mono small" style="margin-top:4px">${(T.shims || []).map(esc).join(" · ") || "nothing yet"}</div></div>
-      ${win ? `<label>Registry</label><div class="small"><code>HKCU\\Software\\OmniWebServer</code> lists the install folder, www folder and the path of every PHP version, MySQL, Apache, Redis, Mailpit and Node.js. <code>%OMNI_WEB_SERVER_HOME%</code> points to the install folder.</div>` : ""}
+      ${win ? `<label>Registry</label><div class="small"><code>HKCU\\Software\\OmniWebServer</code> lists the install folder, www folder and the path of every PHP version, MySQL, Apache, Redis and Mailpit. <code>%OMNI_WEB_SERVER_HOME%</code> points to the install folder.</div>` : ""}
     </div></div>
     ${Object.entries(cats).map(([cat, list]) => `
       <h2>${esc(cat)}</h2>
@@ -824,6 +822,7 @@ async function toggleNewProject() {
 async function buildNewProject() {
   const r = await api("GET", "/api/templates");
   const tpls = r.templates, gitOK = r.git;
+  let nodeOK = r.node;
   let dbs = null; // existing databases, when MySQL runs
   try { dbs = await api("GET", "/api/databases"); } catch (e) { dbs = null; }
   const phps = (S.php || []).map(p => p.minor);
@@ -841,6 +840,7 @@ async function buildNewProject() {
       ${row("Project name", `<input type="text" class="wide" name="name" required pattern="[A-Za-z0-9][A-Za-z0-9._ -]{0,62}" placeholder="blog" autocomplete="off">`, `<span id="np-url">The folder in www and the site name.</span>`)}
       ${row("PHP version", phps.length ? `<select name="php">${phps.map(m => `<option ${m === defPHP ? "selected" : ""}>${esc(m)}</option>`).join("")}</select><div class="err small" id="np-php-warn"></div>`
         : `<input type="hidden" name="php" value=""><span class="err small">No PHP installed yet: install a version on the PHP tab first.</span><div class="err small" id="np-php-warn" hidden></div>`, "", "np-php-label")}
+      <span id="np-node-label" hidden>Node.js</span><div id="np-node" hidden></div>
       <span id="np-db-label">Database</span><div id="np-db"></div>
       <div id="np-extra" style="display:contents"></div>
       ${row("Git", gitOK ? `<label class="row" style="gap:8px;font-weight:400"><input type="checkbox" name="git" checked> Initialize a Git repository (git init + first commit)</label>` : `<span class="muted small">Install Git from the Tools tab to start projects with a repository.</span>`)}
@@ -866,7 +866,12 @@ async function buildNewProject() {
     $p("#np-url").innerHTML = !name ? "The folder in www and the site name."
       : siteTaken ? `<span class="err">A project named ${esc(name)} already exists.</span>`
       : `${esc(S.settings.www_dir)}\\${esc(name)}  ·  http://${esc(host(name))}.${esc(S.settings.tld)}`;
-    $p("#np-create").disabled = !!(taken || siteTaken || $p("#np-php-warn").textContent);
+    const needNode = t.node && !nodeOK;
+    $p("#np-node-label").hidden = $p("#np-node").hidden = !needNode;
+    $p("#np-node").innerHTML = needNode ? `<span class="err small">${esc(t.name)} needs Node.js, which is not installed.</span>
+      <div class="row" style="margin-top:6px"><button type="button" class="btn small primary" data-install="tool" data-version="node">Install Node.js LTS (system-wide)</button><button type="button" class="btn small" data-np-node-check>Check again</button></div>
+      <div class="hint">Installed with winget like any program, so it keeps working without Omni Web Server.</div>` : "";
+    $p("#np-create").disabled = !!(taken || siteTaken || needNode || $p("#np-php-warn").textContent);
   };
 
   const update = () => {
@@ -900,6 +905,11 @@ async function buildNewProject() {
     check();
   };
 
+  form.addEventListener("click", async e => {
+    if (!e.target.closest("[data-np-node-check]")) return;
+    try { nodeOK = (await api("GET", "/api/templates")).node; } catch (ex) {}
+    check();
+  });
   form.addEventListener("change", e => {
     if (e.target.name === "template") update();
     if (e.target.name === "use_db") $f("database").disabled = !e.target.checked;

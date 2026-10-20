@@ -23,7 +23,6 @@ choose to install it, and it stays under its own license.
 | [Redis](https://redis.io/) | Windows builds by [redis-windows](https://github.com/redis-windows/redis-windows) | the Redis license of the downloaded version (RSALv2 / SSPLv1 / AGPLv3) |
 | [Mailpit](https://mailpit.axllent.org/) | [GitHub releases](https://github.com/axllent/mailpit/releases) | MIT |
 | [Composer](https://getcomposer.org/) | [getcomposer.org](https://getcomposer.org/) | MIT |
-| [Node.js](https://nodejs.org/) | [nodejs.org](https://nodejs.org/) | MIT |
 | [Xdebug](https://xdebug.org/) | [xdebug.org](https://xdebug.org/download) | Xdebug License 3.0 |
 | [Adminer](https://www.adminer.org/) | [adminer.org](https://www.adminer.org/) | Apache License 2.0 or GPL 2.0 |
 | [Mozilla CA certificate bundle](https://curl.se/docs/caextract.html) | [curl.se](https://curl.se/ca/cacert.pem) | MPL 2.0 |
@@ -35,6 +34,8 @@ The **Tools** tab can install these through
 [winget](https://learn.microsoft.com/windows/package-manager/). Each comes
 from its publisher under its own terms:
 
+- [Node.js](https://nodejs.org/) (MIT)
+- [Python](https://www.python.org/) (PSF License)
 - [Git for Windows](https://gitforwindows.org/)
 - [Windows Terminal](https://aka.ms/terminal)
 - [Visual Studio Code](https://code.visualstudio.com/)

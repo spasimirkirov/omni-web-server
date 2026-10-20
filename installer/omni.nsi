@@ -277,15 +277,13 @@ SectionGroup /e "Web stack (downloaded on first start)" SecStack
   Section "Composer" SecComposer
     !insertmacro AddPending "composer"
   SectionEnd
-  Section "Node.js LTS" SecNode
-    !insertmacro AddPending "node"
-  SectionEnd
   Section "Mailpit (mail catcher)" SecMailpit
     !insertmacro AddPending "mailpit"
   SectionEnd
 SectionGroupEnd
 ; Optional extras (Redis, Adminer, developer apps) are installed later from
-; the dashboard, so the installer stays short.
+; the dashboard, so the installer stays short. Node.js and Python are among
+; them: they are installed system-wide, not inside the server's folder.
 
 Section /o "Import from Laragon / XAMPP" SecImport
   !insertmacro AddPending "migrate:$MigrateKind"

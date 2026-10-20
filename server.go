@@ -576,7 +576,7 @@ func (a *App) routes() http.Handler {
 		return map[string]string{"url": u}, err
 	}))
 	mux.HandleFunc("GET /api/templates", handle(func(r *http.Request) (any, error) {
-		return map[string]any{"templates": a.templates(r.URL.Query().Get("fresh") != ""), "git": toolPath("git") != ""}, nil
+		return map[string]any{"templates": a.templates(r.URL.Query().Get("fresh") != ""), "git": toolPath("git") != "", "node": a.nodeBinDir(a.config()) != ""}, nil
 	}))
 	mux.HandleFunc("POST /api/projects", handle(func(r *http.Request) (any, error) {
 		var body newProject
@@ -850,9 +850,9 @@ func (a *App) startInstall(component, version, u string) (*Task, error) {
 	case "composer":
 		title = "Install Composer"
 		fn = func(t *Task) error { return a.installComposer(t) }
-	case "node":
-		title = "Install Node.js " + version
-		fn = func(t *Task) error { return a.installNode(t, version) }
+	case "node": // system-wide through winget; also queued by older installers
+		title = "Install Node.js"
+		fn = func(t *Task) error { return a.installTool(t, "node") }
 	case "mailpit":
 		title = "Install Mailpit"
 		fn = func(t *Task) error { return a.installMailpit(t, u) }

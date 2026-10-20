@@ -51,8 +51,8 @@ installer sets it up.
 | **PHP per project** | Install any number of PHP versions and choose one per project. Toggle extensions and edit `php.ini` per version. **Xdebug** is one click away. |
 | **Databases** | MySQL 8.4 or MariaDB 11.4, ready to use with any client (HeidiSQL, DBeaver, PhpStorm). Adminer is optional. |
 | **Mail and cache** | **Mailpit** catches every e-mail your apps send. **Redis** handles cache, queues and sessions. |
-| **Composer and Node.js** | Several Node.js versions with one default, and no separate installers. |
-| **Same PHP everywhere** | `php`, `composer`, `node`, `mysql` and other commands are added to your **PATH**. Terminals, VS Code and PhpStorm use the same PHP and `php.ini` as the web server. |
+| **Composer, Node.js and Python** | Composer comes with the server. Node.js and Python install from the **Tools** tab with one click, system-wide like any program, so projects and virtual environments keep working even without Omni Web Server. |
+| **Same PHP everywhere** | `php`, `composer`, `mysql` and other commands are added to your **PATH**. Terminals, VS Code and PhpStorm use the same PHP and `php.ini` as the web server. |
 | **Wildcard DNS and HTTPS** | Subdomains such as `api.blog.local` work. One click gives you `https://` with a locally trusted CA. |
 | **Share a site** | One click gives a public `https://….trycloudflare.com` URL for webhooks or showing a client. |
 | **Developer apps** | Git, VS Code, PhpStorm, HeidiSQL, DBeaver, Windows Terminal, Docker Desktop and others install through winget. |
@@ -73,10 +73,11 @@ installer sets it up.
    to it.
 3. **Projects folder (www)**: anywhere, for example `D:\Projects`. The
    uninstaller never deletes it.
-4. **Components**: Apache, PHP, MySQL, Composer, Node.js and Mailpit. You
+4. **Components**: Apache, PHP, MySQL, Composer and Mailpit. You
    can pick MariaDB instead of MySQL. If the Visual C++ Redistributable that
    Apache, PHP and MySQL need is missing, the installer adds it. Extras such
-   as Redis, Adminer, Xdebug and developer apps (Git, VS Code, HeidiSQL, ...)
+   as Redis, Adminer, Xdebug, Node.js, Python and developer apps (Git, VS Code,
+   HeidiSQL, ...)
    are installed later from the dashboard.
 5. Click **Finish**. Omni Web Server starts and downloads the selected
    components. You can watch the progress at the top of the dashboard. Then
@@ -125,7 +126,7 @@ MAIL_PORT=1025
 REDIS_HOST=127.0.0.1
 ```
 
-Then run `npm install && npm run dev` with the bundled Node.js. Mailpit's
+Then run `npm install && npm run dev` (install Node.js from the **Tools** tab first). Mailpit's
 inbox is at <http://localhost:8025>.
 
 ### Debugging with Xdebug
@@ -203,9 +204,8 @@ omni.exe site add shop D:\work\shop    vhost for a folder outside www
 omni.exe php install 8.4               download PHP (or 7.4.33 from the archives)
 omni.exe ext 8.4 on intl               toggle extensions
 omni.exe install xdebug 8.4            Xdebug for PHP 8.4
-omni.exe install composer | node 22 | mailpit | redis | mariadb | adminer
-omni.exe install tool git              Windows apps via winget (list: omni.exe tools)
-omni.exe node default 22.11.0          default Node.js
+omni.exe install composer | mailpit | redis | mariadb | adminer
+omni.exe install tool node             Node.js, Python, Git, ... via winget (list: omni.exe tools)
 omni.exe db create blog                utf8mb4 database
 omni.exe dns on | ssl on | ssl trust   wildcard DNS, HTTPS, trust the local CA
 omni.exe share blog [off]              public https URL through Cloudflare
@@ -220,8 +220,8 @@ C:\OmniWebServer\
   omni.exe                  dashboard, CLI and supervisor
   omniw.exe                 the same without a console window (shortcuts, autostart)
   omni.json                 settings and per-project choices
-  bin\apache\ bin\php\php-8.4.x\ bin\mysql\ bin\node\ bin\redis\ bin\mailpit\ bin\composer\
-  bin\shims\                php, composer, node, npm, mysql, redis-cli ... (on PATH)
+  bin\apache\ bin\php\php-8.4.x\ bin\mysql\ bin\redis\ bin\mailpit\ bin\composer\
+  bin\shims\                php, composer, mysql, redis-cli ... (on PATH)
   etc\apache\httpd.conf     generated; your own directives go in etc\apache\custom\*.conf
   etc\php\8.4\php.ini       generated per version from php.ini-development + your settings
   etc\mysql\my.ini          generated; overrides go in etc\mysql\custom.ini

@@ -44,7 +44,8 @@ func (a *App) shims(cfg *Config) map[string]shim {
 			}
 		}
 	}
-	if dir := a.nodeDir(cfg); dir != "" {
+	// A system-wide Node.js is on PATH by itself; shims would shadow it.
+	if dir := a.nodeDir(cfg); dir != "" && toolPath("node") == "" {
 		out["node"] = shim{target: filepath.Join(dir, exeName("node"))}
 		for _, n := range []string{"npm", "npx", "corepack"} {
 			if p := filepath.Join(dir, n+".cmd"); exists(p) {
