@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -158,3 +159,24 @@ func (a *App) trayBalloon(title, text string, isError bool) {}
 
 // singleInstance is Windows-only; elsewhere the dashboard port check is enough.
 func singleInstance() bool { return true }
+
+// totalRAMMB is the installed physical memory in MB (0 when unknown).
+func totalRAMMB() int {
+	b, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if f := strings.Fields(line); len(f) >= 2 && f[0] == "MemTotal:" {
+			kb, _ := strconv.Atoi(f[1])
+			return kb / 1024
+		}
+	}
+	return 0
+}
+
+func defenderStatus(paths, procs []string) string { return "unsupported" }
+
+func defenderRun(action string, paths, procs []string) error {
+	return errors.New("Windows Defender exclusions exist only on Windows")
+}

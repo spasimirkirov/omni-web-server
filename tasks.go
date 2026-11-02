@@ -116,6 +116,16 @@ type TaskManager struct {
 
 func NewTaskManager() *TaskManager { return &TaskManager{tasks: map[int]*Task{}} }
 
+// finalMessage is the message of a finished task. An installer that reported its
+// own result at progress 1 keeps it; otherwise the last progress line (such as
+// "Downloading ...: 0.0 MB") would stay on a task that is done.
+func finalMessage(msg string, progress float64) string {
+	if msg == "" || progress < 1 {
+		return "Done"
+	}
+	return msg
+}
+
 func (m *TaskManager) Run(title string, fn func(t *Task) error) *Task {
 	m.mu.Lock()
 	m.next++
@@ -134,10 +144,8 @@ func (m *TaskManager) Run(title string, fn func(t *Task) error) *Task {
 				}
 			}
 		} else {
+			t.Message = finalMessage(t.Message, t.Progress)
 			t.Status, t.Progress = "done", 1
-			if t.Message == "" {
-				t.Message = "Done"
-			}
 		}
 		t.mu.Unlock()
 	}()

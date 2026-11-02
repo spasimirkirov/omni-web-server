@@ -298,11 +298,13 @@ function svcCard(s) {
                   : `<button class="btn primary" data-svc="${s.name}" data-a="start">Start</button>`}
         ${s.url && st === "running" ? `<a class="btn" href="${esc(s.url)}" target="_blank" rel="noopener">Open inbox</a>` : ""}
         <button class="btn" data-log="${{ mysql: "mysql_error", apache: "apache_error" }[s.name] || s.name}">Log</button>
+        ${s.name === "redis" && S.platform === "windows" ? (S.php || []).filter(p => !p.extensions.some(e => e.name === "redis" && !e.missing && (e.enabled || e.builtin))).map(p => `<button class="btn" data-install="phpext" data-version="${esc(p.minor)}:redis" title="Redis server is installed, but PHP ${esc(p.minor)} has no redis extension (Class &quot;Redis&quot; not found)">Add Redis extension to PHP ${esc(p.minor)}</button>`).join("") : ""}
       </div>`;
   }
   return `<div class="panel svc">
     <div class="top"><span class="dot ${esc(st)}"></span><span class="name">${esc(s.title)}</span><span class="state">${s.installed ? esc(st) : ""}</span></div>
     ${body}
+    ${s.restart_needed ? `<div class="notice warn" style="margin-top:8px">Settings changed. Restart ${esc(s.title)} to apply them.</div>` : ""}
     ${s.status.error ? `<div class="err">${esc(s.status.error)}</div>` : ""}
   </div>`;
 }
@@ -311,7 +313,7 @@ function phpCard() {
   const vs = S.php || [];
   return `<div class="panel svc">
     <div class="top"><span class="dot ${vs.some(p => p.running) ? "running" : ""}"></span><span class="name">PHP</span><span class="state">${vs.length} version${vs.length === 1 ? "" : "s"}</span></div>
-    ${vs.length ? vs.map(p => `<div class="meta">${p.default ? "★ " : ""}<strong>${esc(p.minor)}</strong> ${esc(p.version)} · ${p.in_use ? `${p.running}/${p.workers} workers · port ${p.port}` : "not in use"}</div>`).join("")
+    ${vs.length ? vs.map(p => `<div class="meta">${p.default ? "★ " : ""}<strong>${esc(p.minor)}</strong> ${esc(p.version)}${p.update ? ` (update ${esc(p.update)} available)` : ""} · ${p.in_use ? `${p.running}/${p.workers} workers (${p.busy} busy, ${p.queued} waiting) · port ${p.port}` : "not in use"}</div>`).join("")
                 : `<div class="meta">No PHP installed</div>`}
     <div class="actions"><button class="btn" data-goto="php">Manage PHP</button></div>
   </div>`;
@@ -350,6 +352,7 @@ function siteRow(s) {
     <td><label class="switch" title="${s.enabled ? "Disable" : "Enable"} vhost"><input type="checkbox" data-site-toggle="${esc(s.name)}" ${s.enabled ? "checked" : ""} ${s.missing ? "disabled" : ""}><span></span></label></td>
     <td><strong>${esc(s.name)}</strong> <span class="badge ${esc(s.framework)}">${esc(s.framework)}</span>${s.external ? ` <span class="badge" title="${esc(s.path)}">external</span>` : ""}
       ${s.warning ? `<div class="err">${esc(s.warning)}</div>` : ""}
+      ${s.fast_rewrite_ok ? `<label class="small muted" title="Plus: Apache stops looking for .htaccess files on every request. Minus: rules in this project's .htaccess are ignored (the framework's front controller still works)."><input type="checkbox" data-site-fast="${esc(s.name)}" ${s.fast_rewrite ? "checked" : ""}> Skip .htaccess (faster)</label>` : ""}
       ${S.shares && S.shares[s.name] ? `<div class="small">Public: <a href="${esc(S.shares[s.name])}" target="_blank" rel="noopener">${esc(S.shares[s.name])}</a></div>` : (S.shares && s.name in S.shares ? `<div class="small muted">Starting tunnel…</div>` : "")}</td>
     <td>${s.enabled && !s.missing ? `<a href="${esc(hostURL(s.host))}" target="_blank" rel="noopener">${S.settings.ssl && S.ssl.ca && !S.ssl.error ? lockIcon() : ""}${esc(s.host)}</a>` : `<span class="muted">${esc(s.host)}</span>`}</td>
     <td><select data-site-php="${esc(s.name)}" aria-label="PHP version for ${esc(s.name)}">${phpOptions(s.php_setting)}</select></td>
@@ -386,6 +389,21 @@ function renderPHP(force) {
   if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); }
 }
 
+// Builds known to exist on downloads.php.net per PHP minor, filled by "Check builds".
+const peclAvail = {};
+
+function peclSection(p) {
+  const rows = (p.pecl || []).map(e => {
+    const av = peclAvail[p.minor], noBuild = av && !av[e.name];
+    const state = e.missing ? `<span class="badge">missing</span>` : e.enabled ? `<span class="badge">on</span>` : e.installed ? `<span class="badge">downloaded, off</span>` : "";
+    const btn = e.enabled ? "" : noBuild ? `<span class="muted small">no build for PHP ${esc(p.minor)}</span>`
+      : `<button class="btn small" data-install="phpext" data-version="${esc(p.minor)}:${esc(e.name)}">${e.missing ? "Download again" : e.installed ? "Enable" : "Download and enable"}</button>`
+        + (e.installed || e.missing ? "" : `<button class="btn small" data-install="phpext" data-version="${esc(p.minor)}:${esc(e.name)}:download" title="Only save the DLL; switch it on yourself">Download only</button>`);
+    return `<div class="row" style="gap:8px;align-items:center;margin-top:4px"><strong style="min-width:84px">${esc(e.name)}</strong>${state}<span class="muted small" style="flex:1">${esc(e.desc)}${av && av[e.name] ? " · build " + esc(av[e.name]) : ""}</span>${btn}</div>`;
+  }).join("");
+  return rows ? `<div class="section-title row">PECL extensions <button class="btn small" data-pecl-check="${esc(p.minor)}">Check builds</button></div>${rows}` : "";
+}
+
 function phpVersionCard(p) {
   const shown = p.extensions.filter(e => !phpFilter || e.name.includes(phpFilter));
   const toggles = shown.filter(e => !e.builtin), builtin = shown.filter(e => e.builtin);
@@ -394,9 +412,10 @@ function phpVersionCard(p) {
     <div class="php-head">
       <span class="v">PHP ${esc(p.minor)}</span><span class="muted">${esc(p.version)}</span>
       ${p.default ? `<span class="badge">default</span>` : `<button class="btn small" data-php-default="${esc(p.minor)}">Make default</button>`}
+      ${p.update ? `<span class="badge" style="color:var(--accent)">update available: ${esc(p.update)}</span><button class="btn small primary" data-install="php" data-version="${esc(p.minor)}">Update to ${esc(p.update)}</button>` : ""}
       <span class="badge">${p.in_use ? `${p.running}/${p.workers} workers running` : "not in use"}</span>
       <span class="spacer" style="flex:1"></span>
-      <label class="small muted">Workers <input type="number" min="1" max="9" value="${p.workers}" style="width:60px" data-php-workers="${esc(p.minor)}"></label>
+      <label class="small muted" title="Recommended for this PC: ${S.settings.tuning.workers_recommended} (${S.settings.tuning.cpus} CPUs)">Workers <input type="number" min="1" max="32" value="${p.workers}" style="width:60px" data-php-workers="${esc(p.minor)}"></label>
       ${p.extensions.some(e => e.name === "xdebug") ? "" : `<button class="btn small" data-install="xdebug" data-version="${esc(p.minor)}">Install Xdebug</button>`}
       <button class="btn small" data-log="php${esc(p.minor.replace(".", ""))}_error">Error log</button>
       ${p.removable ? `<button class="btn small danger" data-php-remove="${esc(p.minor)}">Uninstall</button>` : ""}
@@ -406,9 +425,19 @@ function phpVersionCard(p) {
       <div class="muted small mono" style="word-break:break-all">${esc(p.path)}<br>php.ini: ${esc(p.ini_path)}</div>
       <div class="section-title row">Extensions <input type="text" placeholder="Filter…" value="${esc(phpFilter)}" id="ext-filter-${esc(p.minor)}" data-ext-filter="${esc(p.minor)}" style="width:160px;font-weight:400"></div>
       <div class="exts">${toggles.map(e => `
-        <label class="ext"><span class="switch"><input type="checkbox" data-ext="${esc(e.name)}" data-minor="${esc(p.minor)}" ${e.enabled ? "checked" : ""}><span></span></span><span class="n">${esc(e.name)}</span></label>`).join("") || `<span class="muted small">No matching extensions.</span>`}
+        ${e.missing ? `<span class="ext"><span class="n">${esc(e.name)}</span> <span class="badge">missing</span> ${(p.pecl || []).some(x => x.name === e.name) ? `<button class="btn small" data-install="phpext" data-version="${esc(p.minor)}:${esc(e.name)}">Download again</button>` : ""} <button class="btn small" data-ext-off="${esc(e.name)}" data-minor="${esc(p.minor)}" title="Switch it off">Off</button></span>` : `<label class="ext"><span class="switch"><input type="checkbox" data-ext="${esc(e.name)}" data-minor="${esc(p.minor)}" ${e.enabled ? "checked" : ""}><span></span></span><span class="n">${esc(e.name)}</span></label>`}`).join("") || `<span class="muted small">No matching extensions.</span>`}
       </div>
       ${builtin.length ? `<div class="hint" style="margin-top:8px">Built in: ${builtin.map(e => esc(e.name)).join(", ")}</div>` : ""}
+      ${S.platform === "windows" ? peclSection(p) : ""}
+      <div class="section-title">Workers and debugging</div>
+      <div class="form-grid">
+        <label>Workers</label><div><span class="small">${p.workers} (recommended for this PC: ${S.settings.tuning.workers_recommended})</span>
+          <div class="hint">Each worker serves one request at a time. Plus: more pages load in parallel, and a page that calls its own site over HTTP does not wait for itself. Minus: every idle worker holds some memory. Change it in the header of this card (1 to 32). Existing installs keep their number.</div></div>
+        <label>Requests per worker</label><div><input type="number" min="0" max="1000000" value="${p.max_requests}" style="width:110px" data-php-maxreq="${esc(p.minor)}">
+          <div class="hint">A worker restarts after this many requests (0 = never). Plus: memory leaks in long-running workers are cleared. Minus: a restart costs a few ms every N requests. Default 1000.</div></div>
+        ${p.xdebug_on ? `<label>Xdebug debug mode</label><div><select data-php-xdebug="${esc(p.minor)}">${["off", "debug", "develop", "debug,develop", "coverage"].map(m => `<option value="${m}" ${p.xdebug_mode === m ? "selected" : ""}>${m}</option>`).join("")}</select>
+          <div class="hint">off (default): Xdebug is loaded but costs almost nothing; PHP runs at normal speed, also artisan and tests. debug: step debugging, starts with XDEBUG_TRIGGER (port 9003), slower. develop: nicer var_dump and stack traces, slower on every request. debug,develop: both. coverage: code coverage for PHPUnit, slower. Switch it on only while you need it. Save with the button below.</div></div>` : ""}
+      </div>
       <div class="section-title">php.ini settings</div>
       <div class="kv" data-ini="${esc(p.minor)}">
         ${ini.map(([k, v]) => iniRow(k, v)).join("")}
@@ -522,19 +551,30 @@ async function runImport(i) {
   }, 2000);
 }
 
+let toolsAt = 0, toolsTimer = null;
 async function renderTools(reload) {
   const el = $("#tab-tools");
   const T = S.tools, win = S.platform === "windows";
-  if (reload || !toolsCache) { try { toolsCache = await api("GET", "/api/tools"); } catch (e) { toolsCache = []; } }
+  if (reload || !toolsCache || Date.now() - toolsAt > 10000) { try { toolsCache = await api("GET", "/api/tools"); } catch (e) { toolsCache = []; } toolsAt = Date.now(); }
+  // winget is asked in the background; look again while the versions are being read
+  clearTimeout(toolsTimer);
+  if (toolsCache.some(t => t.checking)) toolsTimer = setTimeout(() => { if (tab === "tools") renderTools(true); }, 3000);
+  const cur = T.composer, latest = T.composer_latest;
+  const cmpV = (a, b) => { const x = a.split("."), y = b.split("."); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (parseInt(x[i]) || 0) - (parseInt(y[i]) || 0); if (d) return d; } return 0; };
+  const composerNewer = cur && /^\d/.test(cur) && latest && cmpV(latest, cur) > 0;
+  const composerCurrent = cur && /^\d/.test(cur) && latest && !composerNewer;
   const cats = {};
   for (const t of toolsCache) (cats[t.category] = cats[t.category] || []).push(t);
   el.innerHTML = `
     <h2>Bundled with Omni Web Server</h2>
     <div class="grid">
       <div class="panel svc">
-        <div class="top"><span class="dot ${T.composer ? "running" : ""}"></span><span class="name">Composer</span><span class="state">${T.composer ? esc(T.composer) : "not installed"}</span></div>
+        <div class="top"><span class="dot ${T.composer ? "running" : ""}"></span><span class="name">Composer</span><span class="state">${T.composer ? esc(T.composer) + (latest ? " (latest " + esc(latest) + ")" : "") : "not installed"}</span></div>
         <div class="meta">PHP package manager. <code>composer</code> runs with your default PHP and its php.ini.</div>
-        <div class="actions">${T.composer ? `<button class="btn" data-install="composer">Update</button>` : `<button class="btn primary" data-install="composer">Install Composer</button>`}</div>
+        <div class="actions">${!T.composer ? `<button class="btn primary" data-install="composer">Install Composer</button>`
+          : composerNewer ? `<button class="btn primary" data-install="composer" title="Downloads the new composer.phar and replaces the old one. Plus: current Composer. Minus: a project may rely on behaviour of the old major version.">Update to ${esc(latest)}</button>`
+          : composerCurrent ? `<span class="badge">Up to date</span><button class="btn small" data-install="composer-reinstall" title="Downloads composer.phar again although it is the latest. Plus: repairs a damaged file. Minus: a download for nothing otherwise.">Reinstall</button>`
+          : `<button class="btn" data-install="composer" title="The latest version is not known right now. This checks again and downloads only when there is a newer one.">Update</button>`}</div>
       </div>
       ${T.node_default ? `<div class="panel svc">
         <div class="top"><span class="dot running"></span><span class="name">Node.js (bundled)</span><span class="state">v${esc(T.node_default)}</span></div>
@@ -564,8 +604,8 @@ async function renderTools(reload) {
       <div class="panel table-wrap"><table><tbody>
         ${list.map(t => `<tr>
           <td style="width:34%"><strong>${esc(t.name)}</strong><div class="muted small">${esc(t.description)}</div></td>
-          <td class="path mono" title="${esc(t.path || "")}">${t.installed ? `<span class="dot running" style="display:inline-block;margin-right:6px"></span>${esc(t.path)}` : `<span class="muted">not installed</span>`}</td>
-          <td style="text-align:right;white-space:nowrap">${t.installed ? "" : (win ? `<button class="btn small primary" data-install="tool" data-version="${esc(t.id)}">Install</button>` : "")}
+          <td class="path mono" title="${esc(t.path || "")}">${t.installed ? `<span class="dot running" style="display:inline-block;margin-right:6px"></span>${esc(t.path)}${t.version ? `<div class="muted small">version ${esc(t.version)}${t.available ? ` · newer: ${esc(t.available)}` : ""}</div>` : t.checking ? `<div class="muted small">checking version…</div>` : ""}` : `<span class="muted">not installed</span>`}</td>
+          <td style="text-align:right;white-space:nowrap">${t.installed ? (win && t.available ? `<button class="btn small primary" data-install="toolupdate" data-version="${esc(t.id)}" title="Runs winget upgrade silently. Plus: you get ${esc(t.available)}. Minus: the installer may close ${esc(t.name)} if it is running, so save your work first; Windows may ask for administrator rights.">Update to ${esc(t.available)}</button>` : "") : (win ? `<button class="btn small primary" data-install="tool" data-version="${esc(t.id)}" title="Installs it system-wide with winget. Plus: works without Omni Web Server. Minus: a download of tens to hundreds of MB; Windows may ask for administrator rights.">Install</button>` : "")}
             <a class="btn small" href="${esc(t.url)}" target="_blank" rel="noopener">Website</a></td>
         </tr>`).join("")}
       </tbody></table></div>`).join("")}
@@ -631,6 +671,8 @@ function sslStatusHTML() {
 
 function renderSettings() {
   const st = S.settings;
+  const tn = st.tuning;
+  const swt = (key, label, hint) => `<label>${label}</label><div><label class="switch"><input type="checkbox" data-setting="${key}" ${tn[key] ? "checked" : ""}><span></span></label><div class="hint">${hint}</div></div>`;
   const sw = (key, label, hint) => `<label>${label}</label><div><label class="switch"><input type="checkbox" data-setting="${key}" ${st[key] ? "checked" : ""}><span></span></label>${hint ? `<div class="hint">${hint}</div>` : ""}</div>`;
   $("#tab-settings").innerHTML = `
     <h2>Virtual hosts</h2>
@@ -639,9 +681,25 @@ function renderSettings() {
       ${sw("manage_hosts", "Manage hosts file", "Adds <code>127.0.0.1 project." + esc(st.tld) + "</code> lines to <code class=\"mono\">" + esc(S.hosts_file) + "</code>.")}
       ${sw("wildcard_dns", "Wildcard DNS", "Every <code>*." + esc(st.tld) + "</code> name (also <code>api.blog." + esc(st.tld) + "</code>) resolves to this PC through Omni Web Server's built-in DNS server" + (S.platform === "windows" ? ", so the hosts file no longer needs editing." : "."))}
       ${st.wildcard_dns ? `<label>DNS status</label><div>${dnsStatusHTML()}</div>` : ""}
-      <label for="s-tld">Domain suffix</label><div><input type="text" id="s-tld" value="${esc(st.tld)}" style="width:120px"><div class="hint">Projects are served at name.${esc(st.tld)}</div></div>
+      <label for="s-tld">Domain suffix</label><div><input type="text" id="s-tld" value="${esc(st.tld)}" style="width:120px"><div class="hint">Projects are served at name.${esc(st.tld)}. <code>.test</code> is reserved for testing and resolves fast. <code>.local</code> is used by mDNS on Windows and can be slow for names that are not in the hosts file. Avoid real suffixes such as .dev or .app (browsers force HTTPS on them). Saving a new suffix updates vhosts, the hosts file, certificates, wildcard DNS and Apache in one go. Your bookmarks and the APP_URL in your projects' .env files are not changed: update them by hand.</div></div>
       <label for="s-www">Projects folder</label><div><input type="text" class="wide mono" id="s-www" value="${esc(st.www_dir)}"></div>
       <label></label><div class="row"><button class="btn primary" data-act="save-settings">Save</button><button class="btn" data-act="hosts-sync">Rewrite hosts file now</button></div>
+    </div></div>
+    <h2>Performance</h2>
+    <div class="panel pad"><div class="form-grid">
+      <label for="s-code">Code changes visible</label><div><select id="s-code" data-setting-val="code_visible">
+        <option value="2" ${tn.code_visible === "2" ? "selected" : ""}>within 2 s (default)</option><option value="0" ${tn.code_visible === "0" ? "selected" : ""}>instantly (0)</option></select>
+        <div class="hint">Within 2 s: much faster on big Laravel apps, but an edit can take up to 2 s to show (refresh twice). Instantly: always fresh, slower because PHP checks every file on every request. A value you set yourself in the PHP tab wins.</div></div>
+      ${swt("opcache_cli", "OPcache for command line", "Plus: repeated artisan, composer and PHPUnit runs start faster (compiled files are kept in tmp\\opcache). Minus: the cache folder grows, and its deep folder names can hit the 260 character path limit on very deep vendor trees. Only the php and composer shims use it; the web workers are not affected.")}
+      ${swt("log_static", "Log static files", "Off (default): css, js, images and fonts are left out of apache_access.log, so it stays small. On: every request is logged, which helps when debugging missing assets. The log is rotated at 10 MB (3 old files are kept).")}
+      ${swt("http2", "HTTP/2 on HTTPS sites", "Plus: browsers load many assets over one connection, faster. Minus: HTTP/1.1 tools show slightly different timing. Used only when HTTPS is on and Apache has mod_http2.")}
+      ${swt("fast_db", "Fast dev database", "Off (default). On: no binary log, commits are not flushed to disk each time, a bigger buffer pool and, on MySQL, performance_schema off. Plus: much faster migrations, seeders and tests. Minus: if Windows crashes, up to 1 second of writes can be lost, and there is no point-in-time recovery. Restart " + (st.mysql_flavor === "mariadb" ? "MariaDB" : "MySQL") + " after changing it.")}
+      ${tn.fast_db ? `<label for="s-pool">InnoDB buffer pool</label><div><select id="s-pool" data-setting-val="innodb_buffer_pool">${["256M", "512M", "1G", "2G", "4G"].map(v => `<option ${tn.innodb_buffer_pool === v ? "selected" : ""}>${v}</option>`).join("")}</select>
+        <div class="hint">${tn.pool_recommended_mb ? `Recommended for this PC (${Math.round(tn.ram_mb / 1024)} GB RAM): ${tn.pool_recommended_mb >= 1024 ? tn.pool_recommended_mb / 1024 + "G" : tn.pool_recommended_mb + "M"}. ` : ""}Plus: more data is cached, faster queries. Minus: that much RAM is reserved for the database. Default 512M.</div></div>` : ""}
+      ${swt("redis_persist", "Keep Redis data across restarts", "Off (default): no snapshots. Plus: no stalls (the Windows build emulates fork, which is slow). Minus: cache, sessions and queued jobs are gone when Redis restarts. On: snapshots every 15 min / 5 min, the opposite trade-off. Restart Redis after changing it.")}
+      <label for="s-rmax">Redis memory limit</label><div><select id="s-rmax" data-setting-val="redis_maxmemory">${["256mb", "512mb", "1gb", "2gb", "0"].map(v => `<option value="${v}" ${tn.redis_maxmemory === v ? "selected" : ""}>${v === "0" ? "no limit" : v}</option>`).join("")}</select>
+        <div class="hint">Plus: a runaway cache cannot eat all RAM; only keys with an expiry are evicted, so queued jobs and sessions are kept. Minus: when the limit is reached, old cache entries disappear, and writes fail if nothing can be evicted. Default 512mb. Restart Redis after changing it.</div></div>
+      ${S.platform === "windows" ? `<label>Speed up (Windows Defender)</label><div id="defender-box"><span class="muted small">Checking…</span></div>` : ""}
     </div></div>
     <h2>HTTPS</h2>
     <div class="panel pad"><div class="form-grid">
@@ -679,6 +737,19 @@ function renderSettings() {
       ${sw("open_browser", "Open dashboard", "Open this page in the browser when Omni Web Server starts.")}
       <label>Omni Web Server</label><div class="row"><span class="mono small muted">${esc(S.root)} · v${esc(S.version)}</span><button class="btn danger" data-act="quit">Quit Omni Web Server</button></div>
     </div></div>`;
+  if (S.platform === "windows") loadDefender();
+}
+
+async function loadDefender() {
+  const box = $("#defender-box");
+  if (!box) return;
+  try {
+    const d = await api("GET", "/api/defender");
+    const label = { applied: "Exclusions are in place.", partial: "Some exclusions are in place.", none: "No exclusions from Omni.", unknown: "Status unknown (Windows only shows exclusions to administrators)." }[d.state] || d.state;
+    box.innerHTML = `<div class="small">${esc(label)}${d.state === "unknown" ? " Last action by Omni: " + (d.applied_by_omni ? "applied." : "none / removed.") : ""}</div>
+      <div class="row" style="margin-top:6px"><button class="btn" data-act="defender-apply">Add exclusions…</button><button class="btn" data-act="defender-remove">Remove exclusions…</button></div>
+      <div class="hint">Plus: a big speed-up for Laravel, composer and npm (Defender stops scanning every file they open). Minus: these folders are no longer scanned for viruses, so only use packages you trust. Folders: ${d.paths.map(esc).join(", ")}. Processes: ${d.processes.map(esc).join(", ")}. Windows asks for administrator rights; nothing is applied automatically. Remove exclusions undoes exactly this list.</div>`;
+  } catch (e) { box.textContent = e.message; }
 }
 
 function render() {
@@ -835,15 +906,34 @@ async function buildNewProject() {
   npPanel.innerHTML = `<form id="np-form" novalidate>
     <div class="np-head"><strong>New project</strong><span class="spacer"></span><button type="button" class="btn small" data-act="new-project" aria-label="Close">✕</button></div>
     <div class="form-grid np-grid">
+      ${row("Source", `<select name="source"><option value="template">Template</option><option value="git">Git repository</option></select>`, `<span id="np-source-hint"></span>`)}
+      <div id="np-git-top" style="display:none">
+        ${row("Repository URL", `<input type="text" class="wide" name="repo" placeholder="https://github.com/user/repo.git" autocomplete="off" spellcheck="false">`, "https:// or ssh, for example git@github.com:user/repo.git.")}
+        ${row("Branch or tag", `<input type="text" name="branch" placeholder="default branch" autocomplete="off" spellcheck="false" style="width:260px">`, "Optional. Empty uses the default branch of the repository.")}
+        ${row("Clone", `<label class="row" style="gap:8px;font-weight:400"><input type="checkbox" name="shallow"> Shallow clone (--depth 1)</label>`, "Plus: faster and smaller. Minus: no full history, so log, blame and old branches are missing.")}
+        <span id="np-git-missing-label" hidden>Git</span><div id="np-git-missing" hidden></div>
+      </div>
+      <div id="np-tpl" style="display:contents">
       ${row("Template", `<select name="template" class="wide">${tpls.map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join("")}</select>`, `<span id="np-desc"></span>`)}
       <span id="np-version-label">Version</span><div id="np-version"></div>
+      </div>
       ${row("Project name", `<input type="text" class="wide" name="name" required pattern="[A-Za-z0-9][A-Za-z0-9._ -]{0,62}" placeholder="blog" autocomplete="off">`, `<span id="np-url">The folder in www and the site name.</span>`)}
       ${row("PHP version", phps.length ? `<select name="php">${phps.map(m => `<option ${m === defPHP ? "selected" : ""}>${esc(m)}</option>`).join("")}</select><div class="err small" id="np-php-warn"></div>`
         : `<input type="hidden" name="php" value=""><span class="err small">No PHP installed yet: install a version on the PHP tab first.</span><div class="err small" id="np-php-warn" hidden></div>`, "", "np-php-label")}
       <span id="np-node-label" hidden>Node.js</span><div id="np-node" hidden></div>
+      <div id="np-git-opts" style="display:none">
+        <span>After cloning</span><div>
+          <label class="row" style="gap:8px;font-weight:400"><input type="checkbox" name="composer"> Install PHP packages (composer install)</label>
+          <div class="hint">Plus: vendor/ is ready. Minus: can take minutes. Runs only if composer.json exists.</div>
+          <label class="row" style="gap:8px;font-weight:400;margin-top:8px"><input type="checkbox" name="env"> Laravel: copy .env.example to .env and generate the app key</label>
+          <div class="hint">Plus: the app boots without manual setup. Minus: the key is new, so old encrypted data will not open. Runs only if .env.example and artisan exist; the key also needs composer install.</div>
+          <label class="row" style="gap:8px;font-weight:400;margin-top:8px"><input type="checkbox" name="npm"> Install npm packages (npm install)</label>
+          <div class="hint">Plus: node_modules/ is ready for the front end. Minus: slow and big, and needs Node.js. Runs only if package.json exists.</div>
+        </div>
+      </div>
       <span id="np-db-label">Database</span><div id="np-db"></div>
       <div id="np-extra" style="display:contents"></div>
-      ${row("Git", gitOK ? `<label class="row" style="gap:8px;font-weight:400"><input type="checkbox" name="git" checked> Initialize a Git repository (git init + first commit)</label>` : `<span class="muted small">Install Git from the Tools tab to start projects with a repository.</span>`)}
+      ${row("Git", gitOK ? `<label class="row" style="gap:8px;font-weight:400"><input type="checkbox" name="git" checked> Initialize a Git repository (git init + first commit)</label>` : `<span class="muted small">Install Git from the Tools tab to start projects with a repository.</span>`, "", "np-git-row")}
     </div>
     <div class="notice error" id="np-error" hidden></div>
     <div class="row np-foot"><span class="spacer"></span><button type="button" class="btn" data-act="new-project">Cancel</button><button type="submit" class="btn primary" id="np-create">Create project</button></div>
@@ -853,11 +943,14 @@ async function buildNewProject() {
   const tpl = () => tpls.find(x => x.id === $f("template").value);
   const host = name => name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
 
+  const isGit = () => $f("source").value === "git";
   const check = () => {
-    const t = tpl();
+    const git = isGit(), t = git ? null : tpl();
     const opt = $f("version")?.selectedOptions[0];
     const need = opt ? opt.dataset.php : "";
-    $p("#np-php-warn").textContent = t.id !== "html" && need && !phpOK(need, $f("php").value) ? `This version needs PHP ${need}. Choose another PHP version, or install one on the PHP tab.` : "";
+    const gitNeedsPHP = git && ($f("composer").checked || $f("env").checked);
+    $p("#np-php-warn").textContent = git ? (gitNeedsPHP && !phps.length ? "Composer and artisan need PHP: install a version on the PHP tab first." : "")
+      : t.id !== "html" && need && !phpOK(need, $f("php").value) ? `This version needs PHP ${need}. Choose another PHP version, or install one on the PHP tab.` : "";
     const db = $f("database"), useDB = $f("use_db");
     const taken = db && !db.disabled && (!useDB || useDB.checked) && dbs && dbs.some(d => d.toLowerCase() === db.value.trim().toLowerCase());
     if ($p("#np-db-warn")) $p("#np-db-warn").textContent = taken ? `A database named ${db.value.trim()} already exists. Choose another name.` : "";
@@ -866,32 +959,43 @@ async function buildNewProject() {
     $p("#np-url").innerHTML = !name ? "The folder in www and the site name."
       : siteTaken ? `<span class="err">A project named ${esc(name)} already exists.</span>`
       : `${esc(S.settings.www_dir)}\\${esc(name)}  ·  http://${esc(host(name))}.${esc(S.settings.tld)}`;
-    const needNode = t.node && !nodeOK;
+    const needNode = (git ? $f("npm").checked : t.node) && !nodeOK;
     $p("#np-node-label").hidden = $p("#np-node").hidden = !needNode;
-    $p("#np-node").innerHTML = needNode ? `<span class="err small">${esc(t.name)} needs Node.js, which is not installed.</span>
+    $p("#np-node").innerHTML = needNode ? `<span class="err small">${esc(git ? "npm install" : t.name)} needs Node.js, which is not installed.</span>
       <div class="row" style="margin-top:6px"><button type="button" class="btn small primary" data-install="tool" data-version="node">Install Node.js LTS (system-wide)</button><button type="button" class="btn small" data-np-node-check>Check again</button></div>
       <div class="hint">Installed with winget like any program, so it keeps working without Omni Web Server.</div>` : "";
-    $p("#np-create").disabled = !!(taken || siteTaken || needNode || $p("#np-php-warn").textContent);
+    $p("#np-git-missing-label").hidden = $p("#np-git-missing").hidden = !git || gitOK;
+    $p("#np-git-missing").innerHTML = git && !gitOK ? `<span class="err small">Git is not installed.</span>
+      <div class="row" style="margin-top:6px"><button type="button" class="btn small primary" data-install="tool" data-version="git">Install Git</button><button type="button" class="btn small" data-np-git-check>Check again</button></div>
+      <div class="hint">Installed with winget like any program (Tools tab).</div>` : "";
+    $p("#np-create").disabled = !!(taken || siteTaken || needNode || $p("#np-php-warn").textContent || (git && (!gitOK || !$f("repo").value.trim() || !name)));
   };
 
+  let lastMode = "template";
   const update = () => {
-    const t = tpl(), name = $f("name").value.trim();
+    const git = isGit(), fresh = lastMode !== (lastMode = git ? "git" : "template");
+    const t = git ? tpls[0] : tpl(), name = $f("name").value.trim();
+    const showEl = (el, on) => { el.style.display = on ? "contents" : "none"; };
+    showEl($p("#np-tpl"), !git); showEl($p("#np-git-top"), git); showEl($p("#np-git-opts"), git);
+    $f("repo").required = git;
+    $p("#np-source-hint").textContent = git ? "Clones a repository into the www folder. Nothing runs after the clone unless you tick it." : "A ready-made starter, fully set up.";
     $p("#np-desc").textContent = t.description;
     const versions = t.error ? `<div class="notice warn">Could not load the versions: ${esc(t.error)}</div>`
       : t.versions.length ? `<select name="version" class="wide">${t.versions.map(v => `<option value="${esc(v.version)}" data-php="${esc(v.php || "")}">${esc(v.label)}${v.php ? " · PHP " + esc(v.php) : ""}</option>`).join("")}</select>` : "";
     $p("#np-version").innerHTML = versions;
     $p("#np-version-label").hidden = $p("#np-version").hidden = !versions;
-    $p("#np-php-label").hidden = $p("#np-php-label").nextElementSibling.hidden = t.id === "html";
-    const needDB = t.id === "wordpress";
-    const dbHTML = !t.database ? "" : !mysqlOK ? `<span class="muted small">${needDB ? "WordPress needs MySQL: install it on the Overview tab first." : "Install MySQL on the Overview tab to create a database."}</span>`
-      : `<label class="row" style="gap:8px;font-weight:400"><input type="checkbox" name="use_db" ${needDB || $f("use_db")?.checked !== false ? "checked" : ""} ${needDB ? "disabled" : ""}> Create a MySQL database</label>
-         <input type="text" name="database" pattern="[A-Za-z0-9_$-]{1,64}" value="${esc($f("database")?.value || slugDB(name))}" autocomplete="off" style="width:260px;margin-top:6px">
+    $p("#np-php-label").hidden = $p("#np-php-label").nextElementSibling.hidden = !git && t.id === "html";
+    const needDB = !git && t.id === "wordpress";
+    const useDBOn = git ? !fresh && !!$f("use_db")?.checked : needDB || $f("use_db")?.checked !== false;
+    const dbHTML = !git && !t.database ? "" : !mysqlOK ? `<span class="muted small">${needDB ? "WordPress needs MySQL: install it on the Overview tab first." : "Install MySQL on the Overview tab to create a database."}</span>`
+      : `<label class="row" style="gap:8px;font-weight:400"><input type="checkbox" name="use_db" ${useDBOn ? "checked" : ""} ${needDB ? "disabled" : ""}> Create a MySQL database</label>
+         <input type="text" name="database" pattern="[A-Za-z0-9_$-]{1,64}" value="${esc($f("database")?.value || slugDB(name))}" autocomplete="off" style="width:260px;margin-top:6px" ${useDBOn ? "" : "disabled"}>
          <div class="err small" id="np-db-warn"></div>
-         <div class="hint">Uses the root user from <b>Settings → MySQL</b>.${dbs ? "" : " MySQL is not running, so existing names are checked when the project is created."}</div>`;
+         <div class="hint">${git ? "Plus: DB_* in .env point at it (the .env is created if missing). Minus: an empty database you drop yourself if you delete the project. " : ""}Uses the root user from <b>Settings → MySQL</b>.${dbs ? "" : " MySQL is not running, so existing names are checked when the project is created."}</div>`;
     $p("#np-db").innerHTML = dbHTML;
     $p("#np-db-label").hidden = $p("#np-db").hidden = !dbHTML;
     const keep = Object.fromEntries(["title", "admin_user", "admin_password", "admin_email"].map(n => [n, $f(n)?.value]));
-    const extra = {
+    const extra = git ? null : {
       laravel: () => row("App name", `<input type="text" class="wide" name="title" value="${esc(keep.title ?? name)}">`, "Goes into APP_NAME. The .env is filled in for the database, Mailpit and the site URL, and the migrations run."),
       symfony: () => row("Symfony", `<label class="row" style="gap:8px;font-weight:400"><input type="checkbox" name="webapp"> Full web app (Twig, Doctrine, forms, security…)</label>`),
       wordpress: () => row("Site title", `<input type="text" class="wide" name="title" value="${esc(keep.title ?? name)}">`) +
@@ -902,22 +1006,36 @@ async function buildNewProject() {
       html: () => row("Page title", `<input type="text" class="wide" name="title" value="${esc(keep.title ?? name)}">`),
     }[t.id.startsWith("laravel") ? "laravel" : t.id];
     $p("#np-extra").innerHTML = extra ? extra() : "";
+    $p("#np-git-row").hidden = $p("#np-git-row").nextElementSibling.hidden = git;
     check();
   };
 
   form.addEventListener("click", async e => {
-    if (!e.target.closest("[data-np-node-check]")) return;
-    try { nodeOK = (await api("GET", "/api/templates")).node; } catch (ex) {}
+    if (!e.target.closest("[data-np-node-check], [data-np-git-check]")) return;
+    try { const r = await api("GET", "/api/templates"); nodeOK = r.node; gitOK = r.git; } catch (ex) {}
     check();
   });
+  // Folder name from the repository URL: https://x/user/repo.git -> repo
+  const repoName = u => {
+    let s = u.trim().replace(/[?#].*$/, "").replace(/\/+$/, "");
+    s = s.slice(Math.max(s.lastIndexOf("/"), s.lastIndexOf(":"), s.lastIndexOf("\\")) + 1).replace(/\.git$/, "");
+    return s.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[-._]+|[-._]+$/g, "").slice(0, 63);
+  };
+  let nameTouched = false;
   form.addEventListener("change", e => {
-    if (e.target.name === "template") update();
+    if (e.target.name === "template" || e.target.name === "source") update();
     if (e.target.name === "use_db") $f("database").disabled = !e.target.checked;
     check();
   });
   form.addEventListener("input", e => {
     if (e.target.name === "database") dbTouched = true;
+    if (e.target.name === "repo" && !nameTouched) {
+      const name = repoName(e.target.value);
+      $f("name").value = name;
+      if (!dbTouched && $f("database")) $f("database").value = slugDB(name);
+    }
     if (e.target.name === "name") {
+      nameTouched = !!e.target.value.trim();
       const name = e.target.value.trim();
       if (!dbTouched && $f("database")) $f("database").value = slugDB(name);
       if ($f("title")) $f("title").value = name;
@@ -930,8 +1048,10 @@ async function buildNewProject() {
     err.hidden = true;
     if (!form.reportValidity()) return;
     const t = tpl(), v = n => ($f(n) ? ($f(n).type === "checkbox" ? $f(n).checked : $f(n).value.trim()) : "");
-    if (t.id === "wordpress" && !v("admin_password")) { err.textContent = "Enter a WordPress admin password."; err.hidden = false; return; }
-    const body = { template: t.id, version: v("version"), name: v("name"), php: t.id === "html" ? "" : v("php"), title: v("title") || v("name"),
+    const git = isGit();
+    if (!git && t.id === "wordpress" && !v("admin_password")) { err.textContent = "Enter a WordPress admin password."; err.hidden = false; return; }
+    const body = git ? { source: "git", repo: v("repo"), branch: v("branch"), shallow: v("shallow"), name: v("name"), php: v("php"),
+      composer: v("composer"), env: v("env"), npm: v("npm"), database: mysqlOK && v("use_db") ? v("database") : "" } : { template: t.id, version: v("version"), name: v("name"), php: t.id === "html" ? "" : v("php"), title: v("title") || v("name"),
       database: t.database && mysqlOK && (t.id === "wordpress" || v("use_db")) ? v("database") : "",
       admin_user: v("admin_user"), admin_password: v("admin_password"), admin_email: v("admin_email"), webapp: !!v("webapp"), git: !!v("git") };
     let task;
@@ -1005,6 +1125,12 @@ document.addEventListener("click", async e => {
       if (v) await act("PATCH", `/api/sites/${enc(s.name)}`, { docroot: v.docroot }, "Document root updated");
       return;
     }
+    if (d.peclCheck) {
+      toast("Checking downloads.php.net…");
+      peclAvail[d.peclCheck] = await api("GET", `/api/php/${enc(d.peclCheck)}/pecl`);
+      return renderPHP(true);
+    }
+    if (d.extOff) return act("POST", `/api/php/${enc(d.minor)}/extensions`, { name: d.extOff, enabled: false }).then(() => renderPHP(true));
     if (d.phpDefault) return act("POST", "/api/php/default", { version: d.phpDefault }, "Default PHP is now " + d.phpDefault).then(() => renderPHP(true));
     if (d.phpRemove) { if (confirm(`Uninstall PHP ${d.phpRemove}? Its folder will be deleted.`)) await act("DELETE", `/api/php/${d.phpRemove}`).then(() => renderPHP(true)); return; }
     if (d.iniDel !== undefined) { const k = t.previousElementSibling.previousElementSibling; k.value = ""; t.previousElementSibling.value = ""; return; }
@@ -1014,7 +1140,12 @@ document.addEventListener("click", async e => {
       const ini = {};
       ks.forEach((k, i) => { if (k.value.trim()) ini[k.value.trim()] = vs[i].value.trim(); });
       const workers = parseInt(document.querySelector(`[data-php-workers="${CSS.escape(d.iniSave)}"]`).value, 10) || 0;
-      await act("POST", `/api/php/${d.iniSave}/settings`, { ini, workers }, "PHP " + d.iniSave + " settings saved; workers restarted");
+      const mr = document.querySelector(`[data-php-maxreq="${CSS.escape(d.iniSave)}"]`);
+      const xd = document.querySelector(`[data-php-xdebug="${CSS.escape(d.iniSave)}"]`);
+      const body = { ini, workers };
+      if (mr && mr.value !== "") body.max_requests = parseInt(mr.value, 10);
+      if (xd) body.xdebug_mode = xd.value;
+      await act("POST", `/api/php/${d.iniSave}/settings`, body, "PHP " + d.iniSave + " settings saved; workers restarted");
       return renderPHP(true);
     }
     switch (d.act) {
@@ -1037,6 +1168,12 @@ document.addEventListener("click", async e => {
         const v = await dialog("Add an existing PHP", field("PHP folder (with php-cgi) or php-cgi binary", "path", 'required'), "Add");
         if (v) await act("POST", "/api/php/add", v, "PHP added").then(() => renderPHP(true));
         return;
+      }
+      case "defender-apply": case "defender-remove": {
+        const add = d.act === "defender-apply";
+        if (!confirm(add ? "Add Windows Defender exclusions for Omni's bin, data, tmp and projects folders and its server processes?\n\nThose folders are no longer scanned for viruses. Windows will ask for administrator rights." : "Remove the Windows Defender exclusions that Omni adds? Windows will ask for administrator rights.")) return;
+        await act("POST", "/api/defender", { action: add ? "apply" : "remove" }, add ? "Exclusions added" : "Exclusions removed");
+        return loadDefender();
       }
       case "tools-refresh": return renderTools(true);
       case "node-version": {
@@ -1061,7 +1198,13 @@ document.addEventListener("click", async e => {
         return renderSettings();
       }
       case "save-settings": {
-        await act("POST", "/api/settings", { tld: $("#s-tld").value, www_dir: $("#s-www").value }, "Settings saved");
+        const newTld = $("#s-tld").value.trim().replace(/^\.+/, "").toLowerCase();
+        await act("POST", "/api/settings", { www_dir: $("#s-www").value }, "Settings saved");
+        if (newTld && newTld !== S.settings.tld) {
+          if (!confirm(`Change the domain suffix from .${S.settings.tld} to .${newTld}?\n\nOmni Web Server updates vhosts, the hosts file, certificates, wildcard DNS and restarts Apache. Windows may ask for administrator rights.\n\nYour bookmarks and the APP_URL in your projects' .env files are NOT changed: update them by hand.`)) return renderSettings();
+          const t = await act("POST", "/api/tld", { tld: newTld });
+          taskDialog(t.id, "", () => refresh(true).then(renderSettings));
+        }
         return renderSettings();
       }
       case "save-ports": {
@@ -1079,6 +1222,8 @@ document.addEventListener("change", async e => {
     if (d.siteToggle) return act("PATCH", `/api/sites/${enc(d.siteToggle)}`, { enabled: t.checked }, `${d.siteToggle}: vhost ${t.checked ? "enabled" : "disabled"}`);
     if (d.sitePhp !== undefined) { t.blur(); return act("PATCH", `/api/sites/${enc(d.sitePhp)}`, { php: t.value }, `${d.sitePhp} now uses PHP ${t.value || "default"}`); }
     if (d.ext) { await act("POST", `/api/php/${d.minor}/extensions`, { name: d.ext, enabled: t.checked }, `${d.ext} ${t.checked ? "enabled" : "disabled"} for PHP ${d.minor}`); return renderPHP(true); }
+    if (d.settingVal) { await act("POST", "/api/settings", { [d.settingVal]: t.value }, "Saved"); return renderSettings(); }
+    if (d.siteFast) return act("PATCH", `/api/sites/${enc(d.siteFast)}`, { fast_rewrite: t.checked }, `${d.siteFast}: ${t.checked ? ".htaccess skipped" : ".htaccess used"}`);
     if (d.setting) { await act("POST", "/api/settings", { [d.setting]: t.checked }, "Saved"); return tab === "tools" ? renderTools(false) : renderSettings(); }
     if (d.nodeDefault !== undefined) { await act("POST", "/api/node/default", { version: t.value }, "Default Node.js: " + t.value); return renderTools(false); }
     if (t.id === "log-name") { logName = t.value; return loadLog(); }

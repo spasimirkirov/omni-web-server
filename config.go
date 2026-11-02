@@ -52,6 +52,9 @@ type Config struct {
 	Mailpit MailpitConfig `json:"mailpit"`
 	Redis   RedisConfig   `json:"redis"`
 	Node    NodeConfig    `json:"node"`
+
+	// Tuning holds the performance settings (see tuning.go).
+	Tuning Tuning `json:"tuning"`
 }
 
 // MailpitConfig is the local SMTP server that catches all outgoing mail, with a web inbox.
@@ -81,6 +84,10 @@ type PHPInstall struct {
 	CLI     string `json:"cli,omitempty"`
 	Version string `json:"version"`
 	Workers int    `json:"workers"`
+	// MaxRequests recycles a php-cgi worker after that many requests (nil = 1000, 0 = never).
+	MaxRequests *int `json:"max_requests,omitempty"`
+	// XdebugMode is xdebug.mode when the xdebug extension is on ("" = off).
+	XdebugMode string `json:"xdebug_mode,omitempty"`
 	// Extensions lists the shared extensions that are switched on.
 	Extensions []string `json:"extensions"`
 	// Builtin lists extensions compiled into the binary (cannot be toggled).
@@ -113,13 +120,16 @@ type SiteConfig struct {
 	PHP     string `json:"php,omitempty"`
 	DocRoot string `json:"docroot,omitempty"`
 	Path    string `json:"path,omitempty"`
+	// FastRewrite puts the front-controller rewrite in the vhost and turns .htaccess off
+	// (Laravel, Symfony, CodeIgniter only).
+	FastRewrite bool `json:"fast_rewrite,omitempty"`
 }
 
 func defaultConfig() *Config {
 	return &Config{
 		DashboardPort: 8800,
 		HTTPPort:      80,
-		TLD:           "local",
+		TLD:           defaultTLD,
 		WWWDir:        "www",
 		AutoVhost:     true,
 		ManageHosts:   true,
@@ -145,11 +155,22 @@ func loadConfig(root string) (cfg *Config, fresh bool, err error) {
 	}
 	// Notepad and PowerShell 5 save UTF-8 with a byte order mark.
 	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+	cfg.TLD = "" // an older omni.json without "tld" keeps what it always had: .local
 	if err := json.Unmarshal(data, cfg); err != nil {
 		return nil, false, fmt.Errorf("%s: %w", configFile, err)
 	}
+	cfg.TLD = migrateTLD(cfg.TLD)
 	cfg.normalize()
 	return cfg, false, nil
+}
+
+// migrateTLD keeps existing installs on .local when their omni.json has no
+// suffix; new installs (no file) get the default.
+func migrateTLD(saved string) string {
+	if strings.TrimSpace(saved) == "" {
+		return legacyTLD
+	}
+	return saved
 }
 
 func (c *Config) normalize() {
@@ -165,10 +186,16 @@ func (c *Config) normalize() {
 			continue
 		}
 		if p.Workers <= 0 {
-			p.Workers = 4
+			p.Workers = legacyWorkers
 		}
-		if p.Workers > 9 {
-			p.Workers = 9
+		if p.Workers > maxWorkers {
+			p.Workers = maxWorkers
+		}
+		if p.MaxRequests != nil && (*p.MaxRequests < 0 || *p.MaxRequests > maxMaxReqs) {
+			p.MaxRequests = nil
+		}
+		if p.XdebugMode != "" && !validXdebugMode(p.XdebugMode) {
+			p.XdebugMode = ""
 		}
 		if p.INI == nil {
 			p.INI = map[string]string{}
@@ -214,10 +241,19 @@ func (c *Config) normalize() {
 	if c.DashboardPort == 0 {
 		c.DashboardPort = 8800
 	}
-	if c.TLD == "" {
-		c.TLD = "local"
-	}
 	c.TLD = strings.Trim(strings.ToLower(c.TLD), ".")
+	if c.TLD == "" {
+		c.TLD = defaultTLD
+	}
+	if c.Tuning.CodeVisible != "0" {
+		c.Tuning.CodeVisible = ""
+	}
+	if _, err := normalizePool(c.Tuning.BufferPool); err != nil {
+		c.Tuning.BufferPool = ""
+	}
+	if _, err := normalizeRedisMax(c.Tuning.RedisMaxMemory); err != nil {
+		c.Tuning.RedisMaxMemory = ""
+	}
 	if c.WWWDir == "" {
 		c.WWWDir = "www"
 	}

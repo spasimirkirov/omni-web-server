@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const appVersion = "1.2.0"
+const appVersion = "1.3.0"
 
 type App struct {
 	root string
@@ -286,7 +286,7 @@ func (a *App) writeWelcomeProjectIn(www string) {
 		return
 	}
 	_ = os.MkdirAll(dir, 0o755)
-	_ = os.WriteFile(filepath.Join(dir, "index.php"), []byte(welcomePHP), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "index.php"), []byte(strings.ReplaceAll(welcomePHP, "{tld}", a.cfg.TLD)), 0o644)
 }
 
 const welcomePHP = `<!doctype html>
@@ -295,7 +295,7 @@ const welcomePHP = `<!doctype html>
 </head><body>
 <h1>It works!</h1>
 <p>This page is served by Apache with <strong>PHP <?= PHP_VERSION ?></strong> (<?= PHP_SAPI ?>).</p>
-<p>Every folder in <code>www</code> becomes <code>http://&lt;folder&gt;.local</code>. Laravel projects are pointed at their <code>public</code> folder automatically.</p>
+<p>Every folder in <code>www</code> becomes <code>http://&lt;folder&gt;.{tld}</code>. Laravel projects are pointed at their <code>public</code> folder automatically.</p>
 <p>Loaded extensions: <?= htmlspecialchars(implode(', ', get_loaded_extensions())) ?></p>
 </body></html>
 `
@@ -437,7 +437,7 @@ func (a *App) phpWarningsFor(minor string) []string {
 func (a *App) ensurePool(cfg *Config, minor string) error {
 	p := cfg.PHP[minor]
 	ini, _ := os.ReadFile(a.phpIniPath(minor))
-	hash := fmt.Sprintf("%x|%d|%s", hashBytes(ini), p.Workers, a.phpCGI(p))
+	hash := fmt.Sprintf("%x|%d|%s|%d", hashBytes(ini), p.Workers, a.phpCGI(p), p.maxRequests())
 	pool := a.pools[minor]
 	if pool != nil && pool.iniHash == hash {
 		for _, w := range pool.workers {
@@ -466,6 +466,8 @@ func (a *App) ensurePool(cfg *Config, minor string) error {
 			LogPath: a.path("logs", "php"+tag+"_cgi.log"),
 			Port:    port,
 			Build:   func() (*exec.Cmd, error) { return a.phpWorkerCmd(minor, &inst, port) },
+			// A worker that reaches PHP_FCGI_MAX_REQUESTS exits with code 0 and is started again.
+			RecycleOK: true,
 		}))
 	}
 	a.mu.Lock()
@@ -624,6 +626,7 @@ func (a *App) StopAll() error {
 func (a *App) watch() {
 	t := time.NewTicker(3 * time.Second)
 	defer t.Stop()
+	ticks := 0
 	for {
 		select {
 		case <-a.quit:
@@ -631,6 +634,9 @@ func (a *App) watch() {
 		case <-t.C:
 			if err := a.Apply(false); err != nil {
 				a.log.Printf("apply: %v", err)
+			}
+			if ticks++; ticks%20 == 0 { // about once a minute
+				a.rotateLogs()
 			}
 			a.apache.refresh()
 			a.mysql.refresh()

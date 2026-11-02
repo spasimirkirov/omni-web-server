@@ -67,6 +67,12 @@ func (a *App) mysqlDataDir(cfg *Config) string {
 	return a.path("data", "mysql")
 }
 
+// mysqlVersion is the server version ("8.4.6"), cached; "" when unknown.
+func (a *App) mysqlVersion(cfg *Config) string {
+	bin := a.mysqlBin(cfg)
+	return a.cachedVersion("mysql", func() string { return binVersion(bin, mysqlVersionRe, "--version") })
+}
+
 func (a *App) mysqlIniPath() string { return a.path("etc", "mysql", "my.ini") }
 
 func (a *App) renderMyIni(cfg *Config) string {
@@ -94,8 +100,14 @@ func (a *App) renderMyIni(cfg *Config) string {
 	w("character-set-server = utf8mb4")
 	w("collation-server = utf8mb4_unicode_ci")
 	w("max_allowed_packet = 256M")
-	w("innodb_buffer_pool_size = 256M")
+	w("%s", myIniBufferPool(cfg.Tuning))
 	w("max_connections = 200")
+	if extra := myIniTuning(a.mysqlFlavor(cfg), a.mysqlVersion(cfg), cfg.Tuning); len(extra) > 0 {
+		w("# Fast dev database (Settings > Performance): faster writes, up to 1 s of commits can be lost if Windows crashes")
+		for _, l := range extra {
+			w("%s", l)
+		}
+	}
 	w("")
 	w("[client]")
 	w("port = %d", cfg.MySQL.Port)

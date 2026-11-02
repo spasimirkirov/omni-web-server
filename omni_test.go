@@ -247,7 +247,7 @@ func TestScanSites(t *testing.T) {
 		t.Fatalf("changed=%v sites=%+v", changed, sites)
 	}
 	s := sites[0]
-	if s.Host != "blog.local" || !s.Enabled || s.Framework != "laravel" || s.DocRoot != filepath.Join(root, "www", "blog", "public") || s.PHP != "8.3" {
+	if s.Host != "blog.test" || !s.Enabled || s.Framework != "laravel" || s.DocRoot != filepath.Join(root, "www", "blog", "public") || s.PHP != "8.3" {
 		t.Fatalf("unexpected site %+v", s)
 	}
 	cfg.AutoVhost = false

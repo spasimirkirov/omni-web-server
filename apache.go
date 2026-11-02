@@ -24,6 +24,7 @@ type apacheModule struct{ Name, Path string }
 type apacheVhost struct {
 	Name, Host, DocRoot, Pool string
 	Cert, Key                 string // set when the site is served over HTTPS
+	FastRewrite               bool   // front controller in the vhost, .htaccess ignored
 }
 
 type apacheInput struct {
@@ -43,6 +44,8 @@ type apacheInput struct {
 	Windows    bool
 	User       string
 	Group      string
+	LogStatic  bool // log css/js/images/fonts too
+	HTTP2      bool // mod_http2 is loaded: speak h2 on the HTTPS vhosts
 }
 
 func slash(p string) string { return filepath.ToSlash(p) }
@@ -63,10 +66,17 @@ func phpHandler(b *strings.Builder, addr, indent string) {
 	fmt.Fprintf(b, "%s</FilesMatch>\n", indent)
 }
 
-func dirBlock(b *strings.Builder, dir, indent string) {
+func dirBlock(b *strings.Builder, dir, indent string, fast bool) {
 	fmt.Fprintf(b, "%s<Directory \"%s\">\n", indent, slash(dir))
-	fmt.Fprintf(b, "%s    Options Indexes FollowSymLinks\n", indent)
-	fmt.Fprintf(b, "%s    AllowOverride All\n", indent)
+	if fast {
+		// The framework's front controller, without looking for .htaccess files.
+		fmt.Fprintf(b, "%s    Options FollowSymLinks\n", indent)
+		fmt.Fprintf(b, "%s    AllowOverride None\n", indent)
+		fmt.Fprintf(b, "%s    FallbackResource /index.php\n", indent)
+	} else {
+		fmt.Fprintf(b, "%s    Options Indexes FollowSymLinks\n", indent)
+		fmt.Fprintf(b, "%s    AllowOverride All\n", indent)
+	}
 	fmt.Fprintf(b, "%s    Require all granted\n", indent)
 	fmt.Fprintf(b, "%s    CGIPassAuth On\n", indent)
 	fmt.Fprintf(b, "%s</Directory>\n", indent)
@@ -103,12 +113,23 @@ func renderApacheConf(in apacheInput) string {
 	}
 	w("Timeout 300")
 	w("KeepAlive On")
+	w("MaxKeepAliveRequests 500")
+	w("KeepAliveTimeout 5")
 	w("HostnameLookups Off")
+	// Sendfile stays off: on Windows it can misbehave on network and VM-shared drives,
+	// and the www folder may be on one. A custom conf can switch it on.
 	w("EnableSendfile off")
 	w("ErrorLog \"%s\"", slash(filepath.Join(in.Logs, "apache_error.log")))
 	w("LogLevel warn")
 	w(`LogFormat "%%v %%h %%l %%u %%t \"%%r\" %%>s %%b \"%%{Referer}i\" \"%%{User-Agent}i\"" vcombined`)
-	w("CustomLog \"%s\" vcombined", slash(filepath.Join(in.Logs, "apache_access.log")))
+	if in.LogStatic {
+		w("CustomLog \"%s\" vcombined", slash(filepath.Join(in.Logs, "apache_access.log")))
+	} else {
+		w("<IfModule setenvif_module>")
+		w("    %s", staticLogEnvRule)
+		w("</IfModule>")
+		w("CustomLog \"%s\" vcombined env=!nolog", slash(filepath.Join(in.Logs, "apache_access.log")))
+	}
 	if in.MimeTypes != "" {
 		w("TypesConfig \"%s\"", slash(in.MimeTypes))
 	}
@@ -134,7 +155,7 @@ func renderApacheConf(in apacheInput) string {
 	w("    Require all denied")
 	w("</FilesMatch>")
 	w("")
-	vhost := func(port int, name, alias, docroot, pool, cert, key string) {
+	vhost := func(port int, name, alias, docroot, pool, cert, key string, fast bool) {
 		w("<VirtualHost *:%d>", port)
 		w("    ServerName %s", name)
 		w("    ServerAlias %s", alias)
@@ -143,22 +164,25 @@ func renderApacheConf(in apacheInput) string {
 			w("    SSLEngine on")
 			w("    SSLCertificateFile \"%s\"", slash(cert))
 			w("    SSLCertificateKeyFile \"%s\"", slash(key))
+			if in.HTTP2 {
+				w("    Protocols h2 http/1.1")
+			}
 		}
-		dirBlock(&b, docroot, "    ")
+		dirBlock(&b, docroot, "    ", fast)
 		phpHandler(&b, pool, "    ")
 		w("</VirtualHost>")
 	}
 	w("# Default host: http://localhost/ lists the projects in www")
-	vhost(in.Port, "localhost", "127.0.0.1", in.WWW, in.Default, "", "")
+	vhost(in.Port, "localhost", "127.0.0.1", in.WWW, in.Default, "", "", false)
 	if in.HTTPSPort != 0 && in.LocalCert[0] != "" {
-		vhost(in.HTTPSPort, "localhost", "127.0.0.1", in.WWW, in.Default, in.LocalCert[0], in.LocalCert[1])
+		vhost(in.HTTPSPort, "localhost", "127.0.0.1", in.WWW, in.Default, in.LocalCert[0], in.LocalCert[1], false)
 	}
 	for _, v := range in.Vhosts {
 		w("")
 		w("# %s", v.Name)
-		vhost(in.Port, v.Host, "*."+v.Host, v.DocRoot, v.Pool, "", "")
+		vhost(in.Port, v.Host, "*."+v.Host, v.DocRoot, v.Pool, "", "", v.FastRewrite)
 		if in.HTTPSPort != 0 && v.Cert != "" {
-			vhost(in.HTTPSPort, v.Host, "*."+v.Host, v.DocRoot, v.Pool, v.Cert, v.Key)
+			vhost(in.HTTPSPort, v.Host, "*."+v.Host, v.DocRoot, v.Pool, v.Cert, v.Key, v.FastRewrite)
 		}
 	}
 	w("")
@@ -221,6 +245,13 @@ func (a *App) apacheStaticModules(bin string) map[string]bool {
 }
 
 func (a *App) apacheModuleList(cfg *Config, ssl bool) []apacheModule {
+	mods, _ := a.apacheModuleListH2(cfg, ssl)
+	return mods
+}
+
+// apacheModuleListH2 also reports whether mod_http2 was added. HTTP/2 needs a
+// threaded MPM, so it is skipped with prefork.
+func (a *App) apacheModuleListH2(cfg *Config, ssl bool) ([]apacheModule, bool) {
 	bin := a.apacheBin(cfg)
 	dir := a.apacheModulesDir(cfg)
 	static := a.apacheStaticModules(bin)
@@ -244,11 +275,24 @@ func (a *App) apacheModuleList(cfg *Config, ssl bool) []apacheModule {
 	for _, m := range apacheModules {
 		add(m)
 	}
+	h2 := false
 	if ssl {
 		add("socache_shmcb")
 		add("ssl")
+		if cfg.Tuning.http2On() && !static["mpm_prefork"] && !loadedModule(mods, "mpm_prefork") {
+			h2 = add("http2")
+		}
 	}
-	return mods
+	return mods, h2
+}
+
+func loadedModule(mods []apacheModule, name string) bool {
+	for _, m := range mods {
+		if m.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) apacheMimeTypes(cfg *Config) string {
@@ -305,11 +349,12 @@ func (a *App) buildApacheConf(cfg *Config, sites []Site, certs map[string][2]str
 		MimeTypes:  a.apacheMimeTypes(cfg),
 		CustomDir:  a.path("etc", "apache", "custom"),
 		Port:       cfg.HTTPPort,
-		Modules:    a.apacheModuleList(cfg, certs != nil),
 		Windows:    runtime.GOOS == "windows",
 		User:       usr,
 		Group:      grp,
+		LogStatic:  cfg.Tuning.LogStatic,
 	}
+	in.Modules, in.HTTP2 = a.apacheModuleListH2(cfg, certs != nil)
 	if cfg.DefaultPHP != "" {
 		in.Default = phpAddress(cfg.DefaultPHP)
 	}
@@ -326,7 +371,7 @@ func (a *App) buildApacheConf(cfg *Config, sites []Site, certs map[string][2]str
 			pool = phpAddress(s.PHP)
 		}
 		c := certs[s.Host]
-		in.Vhosts = append(in.Vhosts, apacheVhost{Name: s.Name, Host: s.Host, DocRoot: s.DocRoot, Pool: pool, Cert: c[0], Key: c[1]})
+		in.Vhosts = append(in.Vhosts, apacheVhost{Name: s.Name, Host: s.Host, DocRoot: s.DocRoot, Pool: pool, Cert: c[0], Key: c[1], FastRewrite: s.FastRewrite && fastRewriteOK(s.Framework)})
 	}
 	return renderApacheConf(in)
 }
@@ -345,6 +390,7 @@ func (a *App) apacheCmd(cfg *Config) (*exec.Cmd, error) {
 	if bin == "" || !exists(bin) {
 		return nil, fmt.Errorf("apache is not installed")
 	}
+	a.rotateLogs() // Apache is not running yet: the log is closed
 	cmd := hiddenCommand(bin, "-f", a.apacheConfPath(), "-DFOREGROUND")
 	cmd.Dir = filepath.Dir(bin)
 	return cmd, nil

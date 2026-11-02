@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,6 +20,13 @@ type fcgiDispatcher struct {
 	idle chan int
 	log  *log.Logger
 	wg   sync.WaitGroup
+	// busy counts requests being served by a worker, queued those waiting for one.
+	busy, queued atomic.Int32
+}
+
+// stats returns how many requests a worker is serving and how many wait for one.
+func (d *fcgiDispatcher) stats() (busy, queued int) {
+	return int(d.busy.Load()), int(d.queued.Load())
 }
 
 func startDispatcher(port int, workers []int, logger *log.Logger) (*fcgiDispatcher, error) {
@@ -53,6 +61,8 @@ func (d *fcgiDispatcher) Close() {
 
 // acquire waits for an idle worker that accepts a connection.
 func (d *fcgiDispatcher) acquire() (int, net.Conn, error) {
+	d.queued.Add(1)
+	defer d.queued.Add(-1)
 	deadline := time.After(5 * time.Minute)
 	for {
 		select {
@@ -76,6 +86,8 @@ func (d *fcgiDispatcher) handle(client net.Conn) {
 		d.log.Printf("fastcgi %s: %v", d.ln.Addr(), err)
 		return
 	}
+	d.busy.Add(1)
+	defer d.busy.Add(-1)
 	defer func() { d.idle <- port }()
 	defer worker.Close()
 	done := make(chan struct{})

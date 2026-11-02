@@ -31,25 +31,31 @@ type ServiceView struct {
 	URL       string     `json:"url,omitempty"`
 	Info      string     `json:"info,omitempty"`
 	Status    ProcStatus `json:"status"`
+	// RestartNeeded: the generated config changed while the service runs.
+	RestartNeeded bool `json:"restart_needed,omitempty"`
 }
 
 type DevToolsView struct {
-	Composer     string   `json:"composer"` // version, "" when not installed
-	ComposerPath string   `json:"composer_path"`
-	Node         []string `json:"node"`
-	NodeDefault  string   `json:"node_default"`
-	Shims        []string `json:"shims"`
+	Composer       string   `json:"composer"`                  // version, "" when not installed
+	ComposerLatest string   `json:"composer_latest,omitempty"` // latest stable, "" when unknown
+	ComposerPath   string   `json:"composer_path"`
+	Node           []string `json:"node"`
+	NodeDefault    string   `json:"node_default"`
+	Shims          []string `json:"shims"`
 }
 
 type ExtView struct {
 	Name    string `json:"name"`
 	Enabled bool   `json:"enabled"`
 	Builtin bool   `json:"builtin"`
+	Missing bool   `json:"missing,omitempty"` // enabled, but its DLL is gone
 }
 
 type PHPView struct {
 	Minor      string            `json:"minor"`
 	Version    string            `json:"version"`
+	Update     string            `json:"update,omitempty"` // newer patch release, install it with Update
+	Pecl       []PeclView        `json:"pecl,omitempty"`
 	Path       string            `json:"path"`
 	IniPath    string            `json:"ini_path"`
 	Default    bool              `json:"default"`
@@ -63,6 +69,13 @@ type PHPView struct {
 	Defaults   map[string]string `json:"ini_defaults"`
 	Warnings   []string          `json:"warnings"`
 	Removable  bool              `json:"removable"`
+	// MaxRequests: a worker restarts after this many requests (0 = never).
+	MaxRequests int `json:"max_requests"`
+	// XdebugOn: the xdebug extension is switched on; XdebugMode is xdebug.mode.
+	XdebugOn   bool   `json:"xdebug_on"`
+	XdebugMode string `json:"xdebug_mode"`
+	Busy       int    `json:"busy"`
+	Queued     int    `json:"queued"`
 }
 
 type StateView struct {
@@ -104,6 +117,26 @@ type SettingsView struct {
 	DefaultPHP    string `json:"default_php"`
 	MySQLFlavor   string `json:"mysql_flavor"`
 	HasRootPass   bool   `json:"has_root_password"`
+
+	Tuning TuningView `json:"tuning"`
+}
+
+// TuningView is the performance settings with their defaults applied, plus
+// facts about this PC that the dashboard uses for recommendations.
+type TuningView struct {
+	CodeVisible     string `json:"code_visible"` // "2" or "0"
+	OpcacheCLI      bool   `json:"opcache_cli"`
+	LogStatic       bool   `json:"log_static"`
+	HTTP2           bool   `json:"http2"`
+	FastDB          bool   `json:"fast_db"`
+	BufferPool      string `json:"innodb_buffer_pool"`
+	RedisPersist    bool   `json:"redis_persist"`
+	RedisMaxMemory  string `json:"redis_maxmemory"`
+	CPUs            int    `json:"cpus"`
+	WorkersAdvice   int    `json:"workers_recommended"`
+	RAMMB           int    `json:"ram_mb"`
+	PoolAdviceMB    int    `json:"pool_recommended_mb"`
+	DefenderApplied bool   `json:"defender_applied"`
 }
 
 func (a *App) cachedVersion(key string, fn func() string) string {
@@ -117,6 +150,27 @@ func (a *App) cachedVersion(key string, fn func() string) string {
 	a.mu.Lock()
 	a.versions[key] = v
 	a.mu.Unlock()
+	return v
+}
+
+// fileDiffers reports whether the file exists and differs from want.
+func fileDiffers(path, want string) bool {
+	old, err := os.ReadFile(path)
+	return err == nil && string(old) != want
+}
+
+func (a *App) tuningView(cfg *Config) TuningView {
+	t := cfg.Tuning
+	ram := totalRAMMB()
+	v := TuningView{
+		CodeVisible: t.revalidateFreq(), OpcacheCLI: t.opcacheCLIOn(), LogStatic: t.LogStatic, HTTP2: t.http2On(),
+		FastDB: t.FastDB, BufferPool: t.bufferPool(), RedisPersist: t.RedisPersist, RedisMaxMemory: t.redisMax(),
+		CPUs: runtime.NumCPU(), WorkersAdvice: recommendedWorkers(runtime.NumCPU()), RAMMB: ram,
+		DefenderApplied: t.DefenderApplied,
+	}
+	if ram > 0 {
+		v.PoolAdviceMB = recommendBufferPoolMB(ram)
+	}
 	return v
 }
 
@@ -145,6 +199,7 @@ func (a *App) State() StateView {
 			WildcardDNS: cfg.WildcardDNS, AddToPath: cfg.AddToPath, DNSPort: cfg.DNSPort, SSL: cfg.SSL, HTTPSPort: cfg.HTTPSPort,
 			Autostart: cfg.Autostart, OpenBrowser: cfg.OpenBrowser, DefaultPHP: cfg.DefaultPHP,
 			MySQLFlavor: cfg.MySQL.Flavor, HasRootPass: cfg.MySQL.RootPassword != "",
+			Tuning: a.tuningView(cfg),
 		},
 		Sites:     sites,
 		Tasks:     a.tasks.List(),
@@ -170,6 +225,7 @@ func (a *App) State() StateView {
 		Name: "mysql", Title: title, Installed: mysqlBin != "" && exists(mysqlBin),
 		Version: a.cachedVersion("mysql", func() string { return binVersion(mysqlBin, mysqlVersionRe, "--version") }),
 		Port:    cfg.MySQL.Port, Path: mysqlBin, Status: a.mysql.Status(),
+		RestartNeeded: a.mysql.Running() && fileDiffers(a.mysqlIniPath(), a.renderMyIni(cfg)),
 	})
 	mailpitBin := a.mailpitBin(cfg)
 	st.Services = append(st.Services, ServiceView{
@@ -184,16 +240,13 @@ func (a *App) State() StateView {
 		Name: "redis", Title: "Redis", Installed: installed(redisBin),
 		Version: a.cachedVersion("redis", func() string { return binVersion(redisBin, redisVersionRe, "--version") }),
 		Port:    cfg.Redis.Port, Path: redisBin, Status: a.redis.Status(),
+		RestartNeeded: a.redis.Running() && fileDiffers(a.path("etc", "redis", "redis.conf"), a.redisConfText(cfg)),
 	})
 	st.Tools = DevToolsView{NodeDefault: cfg.Node.Default}
 	if exists(a.composerPhar()) {
 		st.Tools.ComposerPath = a.composerPhar()
-		st.Tools.Composer = a.cachedVersion("composer", func() string {
-			if cli := a.phpCLI(cfg.PHP[cfg.DefaultPHP]); cfg.DefaultPHP != "" && cli != "" {
-				return binVersion(cli, composerVersionRe, a.composerPhar(), "--version", "--no-ansi")
-			}
-			return "installed"
-		})
+		st.Tools.Composer = a.composerCurrent(cfg)
+		st.Tools.ComposerLatest = composerLatest.peek()
 	}
 	for v := range cfg.Node.Versions {
 		st.Tools.Node = append(st.Tools.Node, v)
@@ -208,7 +261,7 @@ func (a *App) State() StateView {
 
 	required := requiredPHP(cfg, sites)
 	defaults := map[string]string{}
-	for _, kv := range defaultPHPIni {
+	for _, kv := range phpDefaultIni(cfg.Tuning) {
 		defaults[kv[0]] = kv[1]
 	}
 	for _, minor := range cfg.phpVersions() {
@@ -217,9 +270,11 @@ func (a *App) State() StateView {
 			Minor: minor, Version: p.Version, Path: a.phpCGI(p), IniPath: a.phpIniPath(minor),
 			Default: minor == cfg.DefaultPHP, InUse: contains(required, minor), Workers: p.Workers,
 			Port: phpPortBase(minor), Ports: phpPorts(minor, p.Workers), INI: p.INI, Defaults: defaults, Warnings: phpWarn[minor],
-			Removable: p.Dir != "" && strings.HasPrefix(a.abs(p.Dir), a.path("bin")+string(os.PathSeparator)),
+			Removable:   p.Dir != "" && strings.HasPrefix(a.abs(p.Dir), a.path("bin")+string(os.PathSeparator)),
+			MaxRequests: p.maxRequests(), XdebugOn: contains(p.Extensions, "xdebug"), XdebugMode: p.xdebugMode(),
 		}
 		if pool := pools[minor]; pool != nil {
+			v.Busy, v.Queued = pool.dispatcher.stats()
 			for _, w := range pool.workers {
 				if w.Status().State == "running" {
 					v.Running++
@@ -237,7 +292,16 @@ func (a *App) State() StateView {
 				v.Extensions = append(v.Extensions, ExtView{Name: e, Enabled: true, Builtin: true})
 			}
 		}
+		for _, e := range extMissing(p.Extensions, p.Builtin, a.availableExtensions(p)) {
+			v.Extensions = append(v.Extensions, ExtView{Name: e, Enabled: true, Missing: true})
+		}
 		sort.Slice(v.Extensions, func(i, j int) bool { return v.Extensions[i].Name < v.Extensions[j].Name })
+		v.Pecl = a.peclViews(p)
+		for _, r := range catalogPeek() {
+			if r.Minor == minor && newerPatch(p.Version, r.Version) {
+				v.Update = r.Version
+			}
+		}
 		st.PHP = append(st.PHP, v)
 	}
 	return st
@@ -349,11 +413,13 @@ func (a *App) routes() http.Handler {
 			Enabled *bool   `json:"enabled"`
 			PHP     *string `json:"php"`
 			DocRoot *string `json:"docroot"`
+			// FastRewrite puts the front controller in the vhost and ignores .htaccess.
+			FastRewrite *bool `json:"fast_rewrite"`
 		}
 		if err := decode(r, &body); err != nil {
 			return nil, err
 		}
-		return nil, a.updateSite(r.PathValue("name"), body.Enabled, body.PHP, body.DocRoot)
+		return nil, a.updateSite(r.PathValue("name"), body.Enabled, body.PHP, body.DocRoot, body.FastRewrite)
 	}))
 	mux.HandleFunc("DELETE /api/sites/{name}", handle(func(r *http.Request) (any, error) {
 		name := r.PathValue("name")
@@ -386,9 +452,13 @@ func (a *App) routes() http.Handler {
 		for i := range out {
 			if p, ok := cfg.PHP[out[i].Minor]; ok {
 				out[i].Installed = p.Version
+				out[i].Update = newerPatch(p.Version, out[i].Version)
 			}
 		}
 		return out, nil
+	}))
+	mux.HandleFunc("GET /api/php/{minor}/pecl", handle(func(r *http.Request) (any, error) {
+		return a.peclAvailability(r.PathValue("minor"))
 	}))
 	mux.HandleFunc("POST /api/php/add", handle(func(r *http.Request) (any, error) {
 		var body struct{ Path string }
@@ -422,13 +492,15 @@ func (a *App) routes() http.Handler {
 	}))
 	mux.HandleFunc("POST /api/php/{minor}/settings", handle(func(r *http.Request) (any, error) {
 		var body struct {
-			Workers int               `json:"workers"`
-			INI     map[string]string `json:"ini"`
+			Workers     int               `json:"workers"`
+			INI         map[string]string `json:"ini"`
+			MaxRequests *int              `json:"max_requests"`
+			XdebugMode  *string           `json:"xdebug_mode"`
 		}
 		if err := decode(r, &body); err != nil {
 			return nil, err
 		}
-		return nil, a.setPHPSettings(r.PathValue("minor"), body.Workers, body.INI)
+		return nil, a.setPHPSettings(r.PathValue("minor"), body.Workers, body.INI, body.MaxRequests, body.XdebugMode)
 	}))
 	mux.HandleFunc("DELETE /api/php/{minor}", handle(func(r *http.Request) (any, error) {
 		return nil, a.removePHP(r.PathValue("minor"))
@@ -464,6 +536,26 @@ func (a *App) routes() http.Handler {
 			return nil, err
 		}
 		return nil, a.updateSettings(body)
+	}))
+
+	mux.HandleFunc("POST /api/tld", handle(func(r *http.Request) (any, error) {
+		var body struct{ TLD string }
+		if err := decode(r, &body); err != nil {
+			return nil, err
+		}
+		t, err := a.startTLDChange(body.TLD)
+		if err != nil {
+			return nil, err
+		}
+		return t.View(), nil
+	}))
+	mux.HandleFunc("GET /api/defender", handle(func(r *http.Request) (any, error) { return a.defenderView(), nil }))
+	mux.HandleFunc("POST /api/defender", handle(func(r *http.Request) (any, error) {
+		var body struct{ Action string }
+		if err := decode(r, &body); err != nil {
+			return nil, err
+		}
+		return nil, a.defenderAction(body.Action)
 	}))
 
 	mux.HandleFunc("GET /api/databases", handle(func(r *http.Request) (any, error) {
@@ -645,7 +737,7 @@ func (a *App) addSite(name, path, php, docroot string) error {
 	})
 }
 
-func (a *App) updateSite(name string, enabled *bool, php, docroot *string) error {
+func (a *App) updateSite(name string, enabled *bool, php, docroot *string, fastRewrite *bool) error {
 	return a.update(func(c *Config) error {
 		s, ok := c.Sites[name]
 		if !ok {
@@ -661,6 +753,9 @@ func (a *App) updateSite(name string, enabled *bool, php, docroot *string) error
 				}
 			}
 			s.PHP = *php
+		}
+		if fastRewrite != nil {
+			s.FastRewrite = *fastRewrite
 		}
 		if docroot != nil {
 			d := strings.TrimSpace(*docroot)
@@ -735,7 +830,7 @@ func (a *App) setExtension(minor, name string, on bool) error {
 		if contains(p.Builtin, name) {
 			return badRequest("%s is built into PHP and always on", name)
 		}
-		if !contains(a.availableExtensions(p), name) {
+		if on && !contains(a.availableExtensions(p), name) {
 			return badRequest("extension %s not found in %s", name, a.phpExtDir(p))
 		}
 		var out []string
@@ -767,17 +862,30 @@ var iniKeyRe = func() func(string) bool {
 	}
 }()
 
-func (a *App) setPHPSettings(minor string, workers int, ini map[string]string) error {
+func (a *App) setPHPSettings(minor string, workers int, ini map[string]string, maxRequests *int, xdebugMode *string) error {
 	return a.update(func(c *Config) error {
 		p, ok := c.PHP[minor]
 		if !ok {
 			return apiError{404, "PHP " + minor + " is not installed"}
 		}
 		if workers != 0 {
-			if workers < 1 || workers > 9 {
-				return badRequest("workers must be between 1 and 9")
+			if workers < 1 || workers > maxWorkers {
+				return badRequest("workers must be between 1 and %d", maxWorkers)
 			}
 			p.Workers = workers
+		}
+		if maxRequests != nil {
+			if *maxRequests < 0 || *maxRequests > maxMaxReqs {
+				return badRequest("requests per worker must be 0 (never restart) or up to %d", maxMaxReqs)
+			}
+			v := *maxRequests
+			p.MaxRequests = &v
+		}
+		if xdebugMode != nil {
+			if !validXdebugMode(*xdebugMode) {
+				return badRequest("debug mode must be one of: %s", strings.Join(xdebugModes, " / "))
+			}
+			p.XdebugMode = *xdebugMode
 		}
 		if ini != nil {
 			clean := map[string]string{}
@@ -850,6 +958,15 @@ func (a *App) startInstall(component, version, u string) (*Task, error) {
 	case "composer":
 		title = "Install Composer"
 		fn = func(t *Task) error { return a.installComposer(t) }
+	case "composer-reinstall":
+		title = "Reinstall Composer"
+		fn = func(t *Task) error { return a.installComposerOpt(t, true) }
+	case "toolupdate":
+		if findDevTool(version) == nil {
+			return nil, badRequest("unknown tool %q", version)
+		}
+		title = "Update " + version
+		fn = func(t *Task) error { return a.updateTool(t, version) }
 	case "node": // system-wide through winget; also queued by older installers
 		title = "Install Node.js"
 		fn = func(t *Task) error { return a.installTool(t, "node") }
@@ -859,6 +976,20 @@ func (a *App) startInstall(component, version, u string) (*Task, error) {
 	case "redis":
 		title = "Install Redis"
 		fn = func(t *Task) error { return a.installRedis(t, u) }
+	case "phpredis": // alias of "phpext" for redis; empty version = every installed PHP
+		title = "Add Redis extension to PHP"
+		if version != "" {
+			title += " " + version
+		}
+		fn = func(t *Task) error { return a.installPECLAll(t, version, "redis", true) }
+	case "phpext": // PECL extension from the registry; version is "8.4:redis" or "8.4:redis:download"
+		minor, rest, _ := strings.Cut(version, ":")
+		name, mode, _ := strings.Cut(rest, ":")
+		if !peclKnown(name) {
+			return nil, badRequest("unknown extension %q", name)
+		}
+		title = "Download " + name + " for PHP " + minor
+		fn = func(t *Task) error { return a.installPECLAll(t, minor, name, mode != "download") }
 	case "xdebug":
 		title = "Install Xdebug for PHP " + version
 		fn = func(t *Task) error { return a.installXdebug(t, version) }
@@ -903,11 +1034,56 @@ func (a *App) updateSettings(body map[string]json.RawMessage) error {
 			case "tld":
 				var t string
 				if err = json.Unmarshal(raw, &t); err == nil {
-					t = strings.Trim(strings.ToLower(t), ". ")
-					if hostLabel(t) != t {
-						return badRequest("invalid TLD")
+					t, terr := normalizeTLD(t)
+					if terr != nil {
+						return badRequest("%v", terr)
 					}
 					c.TLD = t
+				}
+			case "code_visible":
+				var v string
+				if err = json.Unmarshal(raw, &v); err == nil {
+					if v != "0" && v != "2" {
+						return badRequest("code_visible must be 0 or 2")
+					}
+					if v == "2" {
+						v = ""
+					}
+					c.Tuning.CodeVisible = v
+				}
+			case "opcache_cli":
+				var on bool
+				if err = json.Unmarshal(raw, &on); err == nil {
+					c.Tuning.OpcacheCLI = &on
+				}
+			case "http2":
+				var on bool
+				if err = json.Unmarshal(raw, &on); err == nil {
+					c.Tuning.HTTP2 = &on
+				}
+			case "log_static":
+				err = json.Unmarshal(raw, &c.Tuning.LogStatic)
+			case "fast_db":
+				err = json.Unmarshal(raw, &c.Tuning.FastDB)
+			case "redis_persist":
+				err = json.Unmarshal(raw, &c.Tuning.RedisPersist)
+			case "innodb_buffer_pool":
+				var v string
+				if err = json.Unmarshal(raw, &v); err == nil {
+					v, verr := normalizePool(v)
+					if verr != nil {
+						return badRequest("%v", verr)
+					}
+					c.Tuning.BufferPool = v
+				}
+			case "redis_maxmemory":
+				var v string
+				if err = json.Unmarshal(raw, &v); err == nil {
+					v, verr := normalizeRedisMax(v)
+					if verr != nil {
+						return badRequest("%v", verr)
+					}
+					c.Tuning.RedisMaxMemory = v
 				}
 			case "www_dir":
 				var d string

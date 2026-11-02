@@ -72,11 +72,17 @@ protected-mode yes
 daemonize no
 dir "%s"
 dbfilename dump.rdb
-save 900 1
-save 300 10
-appendonly no
-logfile ""
-`, cfg.Redis.Port, loopbackAddrs(" "), a.redisPath(cfg, a.path("data", "redis")))
+%slogfile ""
+`, cfg.Redis.Port, loopbackAddrs(" "), a.redisPath(cfg, a.path("data", "redis")), redisTuning(cfg.Tuning))
+}
+
+// redisConfText is redis.conf as written at start: generated part plus the include of custom.conf.
+func (a *App) redisConfText(cfg *Config) string {
+	conf := a.renderRedisConf(cfg)
+	if custom := a.path("etc", "redis", "custom.conf"); exists(custom) {
+		conf += fmt.Sprintf("include \"%s\"\n", a.redisPath(cfg, custom))
+	}
+	return conf
 }
 
 // redisPath writes a path the way redis-server reads it. The Windows builds

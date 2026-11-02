@@ -1,5 +1,5 @@
 // Omni Web Server is a portable local web server for PHP development: Apache with
-// automatic *.local virtual hosts, several PHP versions side by side (each
+// automatic *.test virtual hosts, several PHP versions side by side (each
 // project picks its own), toggleable PHP extensions and MySQL/MariaDB,
 // controlled from a web dashboard or the command line.
 package main

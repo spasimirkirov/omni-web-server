@@ -35,12 +35,18 @@ func (a *App) shims(cfg *Config) map[string]shim {
 		if cli == "" {
 			continue
 		}
-		s := shim{target: cli, args: []string{"-c", a.phpIniPath(minor)}, env: "PHP_INI_SCAN_DIR="}
+		// Command line only: OPcache with a file cache per PHP version (see cliOpcacheArgs).
+		cliArgs := []string{"-c", a.phpIniPath(minor)}
+		if extra := cliOpcacheArgs(cfg.Tuning, p, slash(a.path("tmp", "opcache", strings.ReplaceAll(minor, ".", "")))); extra != nil {
+			_ = os.MkdirAll(a.path("tmp", "opcache", strings.ReplaceAll(minor, ".", "")), 0o755)
+			cliArgs = append(cliArgs, extra...)
+		}
+		s := shim{target: cli, args: cliArgs, env: "PHP_INI_SCAN_DIR="}
 		out["php"+strings.ReplaceAll(minor, ".", "")] = s
 		if minor == cfg.DefaultPHP {
 			out["php"] = s
 			if exists(a.composerPhar()) {
-				out["composer"] = shim{target: cli, args: []string{"-c", a.phpIniPath(minor), a.composerPhar()}, env: "PHP_INI_SCAN_DIR="}
+				out["composer"] = shim{target: cli, args: append(append([]string{}, cliArgs...), a.composerPhar()), env: "PHP_INI_SCAN_DIR="}
 			}
 		}
 	}

@@ -2,12 +2,14 @@ package main
 
 import (
 	"archive/zip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -25,25 +27,70 @@ const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 
 
 var versionRe = regexp.MustCompile(`\d+\.\d+\.\d+`)
 
-var httpClient = &http.Client{Timeout: 0}
+// No overall timeout: big downloads must finish. A stalled connection is caught by
+// the dial, TLS and response-header limits and by the idle read timeout in httpGet.
+var httpClient = &http.Client{Transport: &http.Transport{
+	Proxy:                 http.ProxyFromEnvironment,
+	DialContext:           (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+	TLSHandshakeTimeout:   15 * time.Second,
+	ResponseHeaderTimeout: 30 * time.Second,
+	ExpectContinueTimeout: 1 * time.Second,
+	MaxIdleConns:          4,
+	IdleConnTimeout:       30 * time.Second,
+}}
+
+// downloadIdleTimeout is how long a download may receive no bytes before it is cancelled.
+const downloadIdleTimeout = 60 * time.Second
+
+// idleBody cancels the request when no byte arrives for idle.
+type idleBody struct {
+	rc     io.ReadCloser
+	timer  *time.Timer
+	idle   time.Duration
+	cancel context.CancelFunc
+}
+
+func (b *idleBody) Read(p []byte) (int, error) {
+	b.timer.Reset(b.idle)
+	n, err := b.rc.Read(p)
+	if n > 0 {
+		b.timer.Reset(b.idle)
+	}
+	return n, err
+}
+
+func (b *idleBody) Close() error {
+	b.timer.Stop()
+	err := b.rc.Close()
+	b.cancel()
+	return err
+}
 
 func httpGet(u string, referer string) (*http.Response, error) {
-	req, err := http.NewRequest("GET", u, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	req.Header.Set("User-Agent", userAgent)
 	if referer != "" {
 		req.Header.Set("Referer", referer)
 	}
+	timer := time.AfterFunc(downloadIdleTimeout, cancel)
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		timer.Stop()
+		cancel()
 		return nil, err
 	}
 	if resp.StatusCode != 200 {
+		timer.Stop()
 		resp.Body.Close()
+		cancel()
 		return nil, fmt.Errorf("GET %s: %s", u, resp.Status)
 	}
+	resp.Body = &idleBody{rc: resp.Body, timer: timer, idle: downloadIdleTimeout, cancel: cancel}
 	return resp, nil
 }
 
@@ -69,14 +116,22 @@ func (p *progressWriter) Write(b []byte) (int, error) {
 	p.n += int64(len(b))
 	if time.Since(p.last) > 300*time.Millisecond {
 		p.last = time.Now()
-		frac := -1.0
-		if p.total > 0 {
-			frac = float64(p.n) / float64(p.total) * 0.9
-		}
-		p.t.Set(fmt.Sprintf("%s: %.1f MB", p.label, float64(p.n)/1e6), frac)
+		p.report()
 	}
 	return len(b), nil
 }
+
+func (p *progressWriter) report() {
+	frac := -1.0
+	if p.total > 0 {
+		frac = float64(p.n) / float64(p.total) * 0.9
+	}
+	p.t.Set(fmt.Sprintf("%s: %.1f MB", p.label, float64(p.n)/1e6), frac)
+}
+
+// finish publishes the final byte count when the body ends (the throttled
+// Write may have skipped the last updates of a fast download).
+func (p *progressWriter) finish() { p.report() }
 
 // download saves u into tmp/downloads, verifying sha256 when given.
 func (a *App) download(t *Task, u, referer, wantSHA string) (string, error) {
@@ -97,6 +152,7 @@ func (a *App) download(t *Task, u, referer, wantSHA string) (string, error) {
 	h := sha256.New()
 	pw := &progressWriter{t: t, label: "Downloading " + name, total: resp.ContentLength}
 	_, err = io.Copy(io.MultiWriter(f, h, pw), resp.Body)
+	pw.finish()
 	f.Close()
 	if err != nil {
 		os.Remove(dest + ".part")
@@ -221,6 +277,7 @@ type PHPRelease struct {
 	URL       string `json:"url"`
 	SHA256    string `json:"sha256"`
 	Installed string `json:"installed"`
+	Update    bool   `json:"update,omitempty"` // Installed is an older patch of this release
 }
 
 var (
@@ -230,6 +287,14 @@ var (
 )
 
 const phpReleasesBase = "https://windows.php.net/downloads/releases/"
+
+// catalogPeek returns the last loaded release list without any network access
+// (nil before the first load), so the dashboard state never waits for it.
+func catalogPeek() []PHPRelease {
+	catalogMu.Lock()
+	defer catalogMu.Unlock()
+	return catalogCache
+}
 
 func phpCatalog() ([]PHPRelease, error) {
 	catalogMu.Lock()
@@ -278,16 +343,7 @@ func phpCatalog() ([]PHPRelease, error) {
 
 // phpArchiveURL guesses the archive download URL for an older release, e.g. 7.4.33.
 func phpArchiveURL(version string) string {
-	vc := "vs17"
-	switch m := minorOf(version); {
-	case compareVersions(m, "7.2") < 0:
-		vc = "vc14"
-	case compareVersions(m, "8.0") < 0:
-		vc = "vc15"
-	case compareVersions(m, "8.4") < 0:
-		vc = "vs16"
-	}
-	return fmt.Sprintf("%sarchives/php-%s-nts-Win32-%s-x64.zip", phpReleasesBase, version, vc)
+	return fmt.Sprintf("%sarchives/php-%s-nts-Win32-%s-x64.zip", phpReleasesBase, version, phpVC(minorOf(version)))
 }
 
 func (a *App) installPHP(t *Task, want, customURL string) error {
@@ -574,14 +630,18 @@ func (a *App) installAdminer(t *Task) error {
 	if err := writeFileAtomic(filepath.Join(a.abs(cfg.WWWDir), "adminer", "index.php"), b); err != nil {
 		return err
 	}
-	return a.update(func(c *Config) error {
+	if err := a.update(func(c *Config) error {
 		if s, ok := c.Sites["adminer"]; ok {
 			s.Enabled = true
 		} else {
 			c.Sites["adminer"] = &SiteConfig{Enabled: true}
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	t.Set("Adminer updated", 1)
+	return nil
 }
 
 // pendingOrder installs dependencies first (Composer needs PHP).
@@ -620,8 +680,9 @@ func (a *App) alreadyInstalled(cfg *Config, item string) bool {
 }
 
 func pendingRank(item string) int {
+	component, _, _ := strings.Cut(item, ":")
 	for i, p := range pendingOrder {
-		if strings.HasPrefix(item, p) {
+		if component == p {
 			return i
 		}
 	}

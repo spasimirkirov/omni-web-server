@@ -30,6 +30,8 @@ Usage: omni.exe [command]
   status                         show services and sites
   open                           open the dashboard in the browser
 
+  new <name> --git <url> [--branch x] [--depth 1] [--php 8.3] [--composer] [--env] [--npm] [--db [--db-name n]]
+                                 clone a Git repository into a new project (nothing runs unless asked)
   sites                          list projects and their vhosts
   site enable|disable <name>     toggle the vhost of a project
   site php <name> <ver|default>  choose the PHP version of a project
@@ -50,7 +52,11 @@ Usage: omni.exe [command]
   install composer               download Composer (shim: composer)
   install node                   Node.js LTS, system-wide via winget (same as: install tool node)
   install xdebug <php-ver>       download Xdebug for a PHP version and enable it
+  install phpredis [php-ver]     same as: ext <ver> install redis (without a version: every PHP)
+  ext <ver> pecl                 PECL extensions (redis, apcu, ...) with builds for this PHP
+  ext <ver> install <name> [--no-enable]   download a PECL extension (php_<name>.dll) and enable it
   install tool <id>              install a Windows app with winget (see "tools")
+  install toolupdate <id>        update a Windows app with winget (tools shows "update available")
   migrate [laragon|xampp] [--root <dir>] [--password <pw>] [--yes]
                                  import projects and databases from Laragon or XAMPP
                                  and take over as the main server (shows the steps first)
@@ -65,7 +71,7 @@ Usage: omni.exe [command]
   db                             list databases
   db create|drop <name>          create or drop a database
   hosts                          rewrite the hosts file (and DNS rule) now
-  dns [on|off]                   wildcard DNS: every *.local name resolves to this PC
+  dns [on|off]                   wildcard DNS: every *.<suffix> name resolves to this PC
   ssl [on|off|trust]             HTTPS for every site with a locally trusted certificate
   logs <name> [lines]            print a log (apache_error, mysql_error, php83_error, ...)
 `
@@ -318,6 +324,8 @@ func (c *client) run(cmd string, args []string) error {
 		return c.printStatus()
 	case "open":
 		return openURL(strings.Replace(c.base, "127.0.0.1", "localhost", 1) + "/")
+	case "new":
+		return c.newProject(args)
 	case "sites":
 		return c.printSites()
 	case "site":
@@ -357,6 +365,9 @@ func (c *client) run(cmd string, args []string) error {
 		composer := "not installed (omni install composer)"
 		if st.Tools.Composer != "" {
 			composer = st.Tools.Composer
+			if l := st.Tools.ComposerLatest; l != "" && compareVersions(l, composer) > 0 {
+				composer += "  update available: " + l + " (omni install composer)"
+			}
 		}
 		fmt.Fprintf(tw, "composer\tComposer\t%s\n", composer)
 		if st.Tools.NodeDefault != "" { // left by an older version
@@ -366,6 +377,12 @@ func (c *client) run(cmd string, args []string) error {
 			status := "not installed (omni install tool " + t.ID + ")"
 			if t.Installed {
 				status = "installed: " + t.Path
+				if t.Version != "" {
+					status += " (" + t.Version + ")"
+				}
+				if t.Available != "" {
+					status += "  update available: " + t.Available + " (omni install toolupdate " + t.ID + ")"
+				}
 			}
 			fmt.Fprintf(tw, "%s\t%s\t%s\n", t.ID, t.Name, status)
 		}
@@ -629,6 +646,9 @@ func (c *client) php(args []string) error {
 			inst := ""
 			if r.Installed != "" {
 				inst = "  (installed " + r.Installed + ")"
+				if r.Update {
+					inst = "  (installed " + r.Installed + ", update available: omni php install " + r.Minor + ")"
+				}
 			}
 			fmt.Printf("%-6s %s%s\n", r.Minor, r.Version, inst)
 		}
@@ -674,6 +694,41 @@ func (c *client) ext(args []string) error {
 	if err := need(args, 1, "ext <version> [on|off <ext...>]"); err != nil {
 		return err
 	}
+	if len(args) >= 2 && args[1] == "pecl" {
+		p, err := c.findPHP(args[0])
+		if err != nil {
+			return err
+		}
+		var avail map[string]string
+		if err := c.call("GET", "/api/php/"+args[0]+"/pecl", nil, &avail); err != nil {
+			return err
+		}
+		for _, e := range p.Pecl {
+			state := "not downloaded"
+			switch {
+			case e.Missing:
+				state = "MISSING (enabled, DLL gone)"
+			case e.Enabled:
+				state = "enabled"
+			case e.Installed:
+				state = "downloaded, off"
+			}
+			build := "no build for this PHP"
+			if r := avail[e.Name]; r != "" {
+				build = "build " + r
+			}
+			fmt.Printf("%-10s %-30s %s\n", e.Name, state, build)
+		}
+		fmt.Println("\nomni ext " + args[0] + " install <name>   download and enable")
+		return nil
+	}
+	if len(args) >= 3 && args[1] == "install" {
+		mode := ""
+		if len(args) > 3 && args[3] == "--no-enable" {
+			mode = ":download"
+		}
+		return c.install(map[string]string{"component": "phpext", "version": args[0] + ":" + args[2] + mode})
+	}
 	if len(args) >= 3 {
 		on := args[1] == "on" || args[1] == "enable"
 		if !on && args[1] != "off" && args[1] != "disable" {
@@ -697,9 +752,12 @@ func (c *client) ext(args []string) error {
 		if e.Builtin {
 			mark = "[=]"
 		}
+		if e.Missing {
+			mark = "[!]"
+		}
 		fmt.Printf("%s %s\n", mark, e.Name)
 	}
-	fmt.Println("\n[x] enabled  [ ] disabled  [=] built in")
+	fmt.Println("\n[x] enabled  [ ] disabled  [=] built in  [!] enabled but DLL missing (ext <ver> install <name>)")
 	for _, w := range p.Warnings {
 		fmt.Println("warning:", w)
 	}

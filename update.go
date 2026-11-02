@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -151,6 +152,11 @@ func (a *App) updateLoop() {
 		wait = 24 * time.Hour
 		if !a.config().SkipUpdateCheck {
 			a.checkUpdate()
+			// Only refreshes the PHP release list so the dashboard can mark
+			// "update available"; nothing is ever installed here.
+			if runtime.GOOS == "windows" {
+				_, _ = phpCatalog()
+			}
 		}
 	}
 }

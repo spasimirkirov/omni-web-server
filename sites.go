@@ -23,6 +23,9 @@ type Site struct {
 	External        bool   `json:"external"`
 	Missing         bool   `json:"missing"`
 	Warning         string `json:"warning,omitempty"`
+	// FastRewrite is the saved choice; FastRewriteOK says the framework supports it.
+	FastRewrite   bool `json:"fast_rewrite"`
+	FastRewriteOK bool `json:"fast_rewrite_ok"`
 }
 
 var invalidHostChars = regexp.MustCompile(`[^a-z0-9-]+`)
@@ -142,6 +145,8 @@ func (a *App) scanSitesLocked() ([]Site, bool) {
 		}
 		fw, rel := detectProject(s.Path)
 		s.Framework = fw
+		s.FastRewrite = sc.FastRewrite
+		s.FastRewriteOK = fastRewriteOK(fw)
 		if sc.DocRoot != "" {
 			if filepath.IsAbs(sc.DocRoot) {
 				s.DocRoot = filepath.Clean(sc.DocRoot)

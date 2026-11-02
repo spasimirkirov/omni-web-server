@@ -380,7 +380,7 @@ func currentResolverRule() string {
 }
 
 // applyResolverRule replaces Omni Web Server's NRPT rule so that only names under
-// namespace (".local") are resolved by the DNS server on 127.0.0.1. An empty
+// namespace (".test") are resolved by the DNS server on 127.0.0.1. An empty
 // namespace removes the rule.
 func applyResolverRule(namespace string, port int) error {
 	if namespace != "" && port != 53 {
@@ -439,4 +439,41 @@ func caInstalled(thumb, path string) bool {
 	ps := fmt.Sprintf(`if ((Test-Path 'Cert:\CurrentUser\Root\%[1]s') -or (Test-Path 'Cert:\LocalMachine\Root\%[1]s')) { 'yes' }`, thumb)
 	out, _ := hiddenCommand("powershell", "-NoProfile", "-NonInteractive", "-Command", ps).Output()
 	return strings.TrimSpace(string(out)) == "yes"
+}
+
+// totalRAMMB is the installed physical memory in MB (0 when unknown).
+func totalRAMMB() int {
+	var m struct {
+		Length               uint32
+		MemoryLoad           uint32
+		TotalPhys, AvailPhys uint64
+		TotalPage, AvailPage uint64
+		TotalVirt, AvailVirt uint64
+		AvailExtendedVirtual uint64
+	}
+	m.Length = uint32(unsafe.Sizeof(m))
+	r, _, _ := kernel32.NewProc("GlobalMemoryStatusEx").Call(uintptr(unsafe.Pointer(&m)))
+	if r == 0 {
+		return 0
+	}
+	return int(m.TotalPhys >> 20)
+}
+
+// defenderStatus reads the Defender exclusions. Without administrator rights
+// Windows hides them, which parseDefenderStatus reports as "unknown".
+func defenderStatus(paths, procs []string) string {
+	out, err := powershellOutput(`$p = Get-MpPreference; @{ p = @($p.ExclusionPath); x = @($p.ExclusionProcess) } | ConvertTo-Json -Compress`)
+	if err != nil {
+		return "unknown"
+	}
+	return parseDefenderStatus(out, paths, procs)
+}
+
+// defenderRun adds or removes the exclusions through an elevated PowerShell (UAC prompt).
+func defenderRun(action string, paths, procs []string) error {
+	script, err := defenderScript(action, paths, procs)
+	if err != nil {
+		return err
+	}
+	return runPowerShell(script, true)
 }

@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Extensions switched on when a PHP version is first registered (if available).
@@ -51,7 +52,6 @@ var defaultPHPIni = [][2]string{
 	{"date.timezone", "UTC"},
 	{"display_errors", "On"},
 	{"error_reporting", "E_ALL"},
-	{"opcache.revalidate_freq", "0"},
 }
 
 type phpProbe struct {
@@ -212,6 +212,9 @@ func iniQuote(v string) string {
 
 // renderPHPIni builds the full php.ini: the shipped template with its extension
 // lines commented out, followed by Omni Web Server's managed section (later keys win).
+// missingLogged remembers which missing extensions were already logged.
+var missingLogged sync.Map
+
 func (a *App) renderPHPIni(cfg *Config, minor string, p *PHPInstall) string {
 	var b strings.Builder
 	sc := bufio.NewScanner(strings.NewReader(a.baseIni(minor, p)))
@@ -230,6 +233,11 @@ func (a *App) renderPHPIni(cfg *Config, minor string, p *PHPInstall) string {
 	fmt.Fprintf(&b, "; ------------------------------------------------------------------\n[PHP]\n")
 	fmt.Fprintf(&b, "extension_dir = %s\n", iniQuote(slash(a.phpExtDir(p))))
 	available := a.availableExtensions(p)
+	for _, e := range extMissing(p.Extensions, p.Builtin, available) {
+		if _, seen := missingLogged.LoadOrStore(minor+"/"+e, true); !seen && a.log != nil {
+			a.log.Printf("PHP %s: extension %s is enabled but its DLL is missing; skipped in php.ini (download it again in the PHP tab)", minor, e)
+		}
+	}
 	for _, e := range withDependencies(p.Extensions, available) {
 		if contains(p.Builtin, e) {
 			continue
@@ -266,15 +274,15 @@ func (a *App) renderPHPIni(cfg *Config, minor string, p *PHPInstall) string {
 		fmt.Fprintf(&b, "%s = %s\n", kv[0], iniQuote(kv[1]))
 	}
 	merged := map[string]string{}
-	for _, kv := range defaultPHPIni {
+	for _, kv := range phpDefaultIni(cfg.Tuning) {
 		merged[kv[0]] = kv[1]
 	}
 	if contains(p.Extensions, "xdebug") {
-		// Step debugging on demand (XDEBUG_TRIGGER / browser extension), IDE on port 9003.
-		merged["xdebug.mode"] = "debug,develop"
-		merged["xdebug.start_with_request"] = "trigger"
-		merged["xdebug.client_host"] = "127.0.0.1"
-		merged["xdebug.client_port"] = "9003"
+		// Mode off until the Debug mode switch says otherwise; step debugging then
+		// starts on demand (XDEBUG_TRIGGER / browser extension), IDE on port 9003.
+		for _, kv := range xdebugIni(p) {
+			merged[kv[0]] = kv[1]
+		}
 	}
 	for k, v := range p.INI {
 		merged[k] = v
@@ -307,12 +315,7 @@ func (a *App) phpWorkerCmd(minor string, p *PHPInstall, port int) (*exec.Cmd, er
 	}
 	cmd := hiddenCommand(cgi, "-b", fmt.Sprintf("127.0.0.1:%d", port), "-c", a.phpIniPath(minor))
 	cmd.Dir = filepath.Dir(cgi)
-	cmd.Env = append(os.Environ(),
-		"PHP_FCGI_MAX_REQUESTS=0",
-		"PHP_FCGI_CHILDREN=0",
-		"PHP_INI_SCAN_DIR=",
-		"PHPRC="+filepath.Dir(a.phpIniPath(minor)),
-	)
+	cmd.Env = append(os.Environ(), workerEnv(p.maxRequests(), filepath.Dir(a.phpIniPath(minor)))...)
 	return cmd, nil
 }
 
@@ -341,7 +344,7 @@ func stripTags(s string) string { return tagRe.ReplaceAllString(s, "") }
 
 // registerPHP probes a php-cgi binary and adds/updates it in cfg.PHP.
 func (a *App) registerPHP(cfg *Config, dir, cgi string) (string, error) {
-	inst := &PHPInstall{Dir: a.rel(dir), Workers: 4, INI: map[string]string{}}
+	inst := &PHPInstall{Dir: a.rel(dir), Workers: defaultWorkers, INI: map[string]string{}}
 	if cgi != "" {
 		inst.CGI = a.rel(cgi)
 	}
@@ -373,6 +376,8 @@ func (a *App) registerPHP(cfg *Config, dir, cgi string) (string, error) {
 	}
 	if old, ok := cfg.PHP[minor]; ok {
 		inst.Workers = old.Workers
+		inst.MaxRequests = old.MaxRequests
+		inst.XdebugMode = old.XdebugMode
 		inst.INI = old.INI
 		inst.Extensions = old.Extensions
 	} else {

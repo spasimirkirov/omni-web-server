@@ -16,6 +16,10 @@ type ProcSpec struct {
 	Build   func() (*exec.Cmd, error)
 	// Port, when set, is used as the readiness check.
 	Port int
+	// RecycleOK marks a process that may exit by itself with code 0 (a php-cgi worker
+	// that reached PHP_FCGI_MAX_REQUESTS): that is restarted at once and never counts
+	// as a failure.
+	RecycleOK bool
 	// Graceful asks the process to stop before it is killed (optional).
 	Graceful func() error
 }
@@ -106,11 +110,19 @@ func (p *Proc) onExit(cmd *exec.Cmd, werr error) {
 		p.state = "stopped"
 		return
 	}
-	if time.Since(p.startedAt) < 10*time.Second {
-		p.fastFails++
-	} else {
+	if p.spec.RecycleOK && werr == nil {
 		p.fastFails = 0
+		p.state = "restarting"
+		go func() {
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			if p.wanted && p.cmd == nil {
+				_ = p.launchLocked()
+			}
+		}()
+		return
 	}
+	p.fastFails = nextFastFails(p.fastFails, p.spec.RecycleOK, werr, time.Since(p.startedAt))
 	p.lastErr = fmt.Sprintf("exited unexpectedly (%v): %s", werr, lastLines(p.spec.LogPath, 6))
 	if p.fastFails >= 5 {
 		p.state = "failed"

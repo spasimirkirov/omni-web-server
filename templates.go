@@ -446,9 +446,20 @@ type newProject struct {
 	AdminEmail    string `json:"admin_email"`
 	// Symfony: full web app instead of the bare skeleton
 	WebApp bool `json:"webapp"`
+	// Source "git": clone a repository instead of using a template
+	Source   string `json:"source"`
+	Repo     string `json:"repo"`
+	Branch   string `json:"branch"`
+	Shallow  bool   `json:"shallow"` // --depth 1
+	Composer bool   `json:"composer"`
+	Env      bool   `json:"env"` // .env.example -> .env, key:generate
+	Npm      bool   `json:"npm"`
 }
 
 func (a *App) startNewProject(p newProject) (*Task, error) {
+	if p.Source == "git" {
+		return a.startGitProject(p)
+	}
 	var tpl *projectTemplate
 	for _, t := range baseTemplates() {
 		if t.ID == p.Template {
@@ -659,7 +670,7 @@ func (a *App) removeUnfinishedProjects() {
 	for _, e := range entries {
 		if e.IsDir() && strings.HasPrefix(e.Name(), ".omni-new-") {
 			a.log.Printf("removing the unfinished project %s", e.Name())
-			_ = os.RemoveAll(filepath.Join(www, e.Name()))
+			_ = removeAllForce(filepath.Join(www, e.Name()))
 		}
 	}
 }

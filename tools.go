@@ -21,7 +21,32 @@ var composerVersionRe = regexp.MustCompile(`Composer version (\S+)`)
 
 func (a *App) composerPhar() string { return a.path("bin", "composer", "composer.phar") }
 
-func (a *App) installComposer(t *Task) error {
+// composerCurrent is the installed Composer version, "" when unknown.
+func (a *App) composerCurrent(cfg *Config) string {
+	if !exists(a.composerPhar()) {
+		return ""
+	}
+	return a.cachedVersion("composer", func() string {
+		if cli := a.phpCLI(cfg.PHP[cfg.DefaultPHP]); cfg.DefaultPHP != "" && cli != "" {
+			return binVersion(cli, composerVersionRe, a.composerPhar(), "--version", "--no-ansi")
+		}
+		return "installed"
+	})
+}
+
+func (a *App) installComposer(t *Task) error { return a.installComposerOpt(t, false) }
+
+// installComposerOpt downloads Composer. Unless force is set it does nothing
+// when the installed version is already the latest stable one.
+func (a *App) installComposerOpt(t *Task, force bool) error {
+	if !force {
+		if cur := a.composerCurrent(a.config()); wingetVersionRe.MatchString(cur) {
+			if latest := composerLatest.wait(); latest != "" && compareVersions(cur, latest) >= 0 {
+				t.Set("Composer "+cur+" is already up to date", 1)
+				return nil
+			}
+		}
+	}
 	const base = "https://getcomposer.org/download/latest-stable/"
 	t.Set("Downloading Composer", -1)
 	sum, err := fetchText(base + "composer.phar.sha256")
@@ -43,7 +68,15 @@ func (a *App) installComposer(t *Task) error {
 		return err
 	}
 	a.forgetVersion("composer")
-	a.writeShims(a.config())
+	cfg := a.config()
+	a.writeShims(cfg)
+	msg := "Composer installed"
+	if p := cfg.PHP[cfg.DefaultPHP]; p != nil && a.phpCLI(p) != "" {
+		if v := binVersion(a.phpCLI(p), composerVersionRe, "-c", a.phpIniPath(cfg.DefaultPHP), a.composerPhar(), "--version", "--no-ansi"); v != "" {
+			msg = "Composer " + v + " installed"
+		}
+	}
+	t.Set(msg, 1)
 	return nil
 }
 
@@ -122,6 +155,9 @@ type devTool struct {
 	Winget      string   `json:"winget"`
 	URL         string   `json:"url"`
 	Installed   bool     `json:"installed"`
+	Version     string   `json:"version,omitempty"`   // installed version, from winget
+	Available   string   `json:"available,omitempty"` // newer version winget knows
+	Checking    bool     `json:"checking,omitempty"`  // versions are being read
 	Path        string   `json:"path,omitempty"`
 	detect      []string // commands on PATH or file globs (%VAR% expanded)
 }
@@ -194,37 +230,72 @@ func toolPath(id string) string {
 func (a *App) listTools() []devTool {
 	out := make([]devTool, len(devTools))
 	copy(out, devTools)
+	var pkgs map[string]wingetPkg
+	checking := false
+	if runtime.GOOS == "windows" && findWinget() != "" {
+		ids := make([]string, len(devTools))
+		for i, t := range devTools {
+			ids[i] = t.Winget
+		}
+		pkgs, checking = wingetVersions.get(ids)
+	}
 	for i := range out {
 		out[i].Path = detectTool(out[i].detect)
 		out[i].Installed = out[i].Path != ""
+		if out[i].Installed {
+			if p, ok := pkgs[out[i].Winget]; ok {
+				out[i].Version = p.Version
+				if p.Available != "" && p.Available != p.Version {
+					out[i].Available = p.Available
+				}
+			} else if checking {
+				out[i].Checking = true
+			}
+		}
 	}
 	return out
 }
 
-func (a *App) installTool(t *Task, id string) error {
-	var tool *devTool
+func findDevTool(id string) *devTool {
 	for i := range devTools {
 		if devTools[i].ID == id {
-			tool = &devTools[i]
+			return &devTools[i]
 		}
 	}
+	return nil
+}
+
+// installTool installs a Windows app with winget; updateTool upgrades it.
+func (a *App) installTool(t *Task, id string) error { return a.wingetTask(t, id, "install") }
+func (a *App) updateTool(t *Task, id string) error  { return a.wingetTask(t, id, "upgrade") }
+
+func (a *App) wingetTask(t *Task, id, verb string) error {
+	tool := findDevTool(id)
 	if tool == nil {
 		return fmt.Errorf("unknown tool %q", id)
 	}
 	if runtime.GOOS != "windows" {
 		return fmt.Errorf("install %s from %s", tool.Name, tool.URL)
 	}
-	winget := detectTool([]string{"winget", `%LOCALAPPDATA%\Microsoft\WindowsApps\winget.exe`})
-	if winget == "" {
+	if findWinget() == "" {
 		return fmt.Errorf("winget (App Installer) is not available; download %s from %s", tool.Name, tool.URL)
 	}
-	t.Set("Installing "+tool.Name+" with winget (this can take a few minutes)", -1)
-	out, err := hiddenCommand(winget, "install", "--id", tool.Winget, "-e", "--silent",
-		"--accept-source-agreements", "--accept-package-agreements", "--disable-interactivity").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("winget: %v\n%s", err, tailString(strings.TrimSpace(string(out)), 600))
+	doing := map[string]string{"install": "Installing ", "upgrade": "Updating "}[verb]
+	t.Set(doing+tool.Name+" with winget (this can take a few minutes)", -1)
+	args := wingetArgs(verb, tool.Winget)
+	out, code, err := runWinget(wingetInstallTimeout, args...)
+	if ok, msg := wingetResult(code); err == nil || ok {
+		if msg == "" {
+			msg = map[string]string{"install": "Installed ", "upgrade": "Updated "}[verb] + tool.Name
+		}
+		wingetVersions.invalidate(tool.Winget)
+		t.Set(msg, 1)
+		return nil
 	}
-	return nil
+	if code == -1 && strings.HasPrefix(err.Error(), "winget did not finish") {
+		return err
+	}
+	return fmt.Errorf("winget: %v\n%s", err, tailString(strings.TrimSpace(out), 600))
 }
 
 // ---- Share a site publicly through a Cloudflare quick tunnel ----

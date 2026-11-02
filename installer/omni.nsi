@@ -9,7 +9,7 @@ ManifestDPIAware true
 SetCompressor /SOLID lzma
 
 !ifndef VERSION
-  !define VERSION "1.2.0"
+  !define VERSION "1.3.0"
 !endif
 !ifndef SRCDIR
   !define SRCDIR "..\dist\OmniWebServer"
@@ -121,8 +121,8 @@ LangString PageWWWTitle ${LANG_ENGLISH} "Projects folder (www)"
 LangString PageWWWTitle ${LANG_BULGARIAN} "Папка с проектите (www)"
 LangString PageWWWSub ${LANG_ENGLISH} "Where your websites live. It can be anywhere, also on another drive."
 LangString PageWWWSub ${LANG_BULGARIAN} "Къде са вашите сайтове. Може да е навсякъде, включително на друг диск."
-LangString PageWWWTop ${LANG_ENGLISH} "Every folder inside becomes http://<folder>.local automatically (Laravel projects are served from public/). Uninstalling never deletes this folder."
-LangString PageWWWTop ${LANG_BULGARIAN} "Всяка папка вътре автоматично става http://<папка>.local (Laravel проектите се обслужват от public/). Деинсталирането никога не изтрива тази папка."
+LangString PageWWWTop ${LANG_ENGLISH} "Every folder inside becomes http://<folder>.test automatically (Laravel projects are served from public/). Uninstalling never deletes this folder."
+LangString PageWWWTop ${LANG_BULGARIAN} "Всяка папка вътре автоматично става http://<папка>.test (Laravel проектите се обслужват от public/). Деинсталирането никога не изтрива тази папка."
 LangString PageWWWDest ${LANG_ENGLISH} "Projects folder"
 LangString PageWWWDest ${LANG_BULGARIAN} "Папка с проекти"
 LangString FinishRun ${LANG_ENGLISH} "Start Omni Web Server"

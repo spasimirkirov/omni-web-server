@@ -22,7 +22,7 @@ import (
 
 // Easy SSL: Omni Web Server keeps a local certificate authority (created once) and
 // issues a certificate per site covering "site.tld" and "*.site.tld". Once the
-// CA is trusted (one click on Windows), every https://*.local works without
+// CA is trusted (one click on Windows), every https://*.<suffix> works without
 // browser warnings.
 
 const (
@@ -183,7 +183,7 @@ func (a *App) ensureSiteCert(ca *x509.Certificate, caKey *ecdsa.PrivateKey, host
 
 // prepareSSL makes sure the CA and every enabled site's certificate exist and
 // returns host -> [cert, key]. It also refreshes the CA bundle PHP uses, so
-// curl/file_get_contents to https://*.local verify too.
+// curl/file_get_contents to https://*.<suffix> verify too.
 func (a *App) prepareSSL(cfg *Config, sites []Site) (map[string][2]string, error) {
 	ca, caKey, err := a.loadCA()
 	if err != nil {

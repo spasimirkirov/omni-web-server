@@ -13,7 +13,7 @@ import (
 )
 
 // Wildcard DNS: a tiny authoritative DNS server that answers every name under
-// the dev TLD (blog.local, api.blog.local, ...) with the loopback address.
+// the dev TLD (blog.test, api.blog.test, ...) with the loopback address.
 // On Windows an NRPT rule routes only that suffix to it, so the rest of the
 // system's DNS is untouched and no hosts-file edits are needed.
 
