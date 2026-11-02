@@ -92,3 +92,13 @@ func TestMissingExtensionDLLSkipped(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+func TestPeclEnabled(t *testing.T) {
+	got := peclEnabled([]string{"curl", "redis", "opcache", "apcu", "redis"})
+	if len(got) != 2 || got[0] != "redis" || got[1] != "apcu" {
+		t.Fatalf("peclEnabled = %v, want [redis apcu]", got)
+	}
+	if got := peclEnabled(nil); len(got) != 0 {
+		t.Fatalf("peclEnabled(nil) = %v", got)
+	}
+}

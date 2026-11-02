@@ -387,9 +387,13 @@ func (a *App) installPHP(t *Task, want, customURL string) error {
 	t.Set("Registering PHP", 0.99)
 	a.ensureCACert(t)
 	var minor, oldDir string
+	var wantPECL []string // PECL extensions switched on where this build comes from
 	err = a.update(func(c *Config) error {
 		if p, ok := c.PHP[minorOf(version)]; ok {
 			oldDir = a.abs(p.Dir)
+			wantPECL = peclEnabled(p.Extensions)
+		} else if p, ok := c.PHP[c.DefaultPHP]; ok {
+			wantPECL = peclEnabled(p.Extensions)
 		}
 		var err error
 		minor, err = a.registerPHP(c, dir, "")
@@ -404,8 +408,40 @@ func (a *App) installPHP(t *Task, want, customURL string) error {
 			a.log.Printf("removing old PHP build %s: %v", oldDir, err)
 		}
 	}
-	t.Set("Installed PHP "+version+" ("+minor+")", 1)
+	msg := "Installed PHP " + version + " (" + minor + ")"
+	carried, failed := a.carryPECL(t, minor, wantPECL)
+	if len(carried) > 0 {
+		msg += "; extensions brought over: " + strings.Join(carried, ", ")
+	}
+	if len(failed) > 0 {
+		msg += "; not downloaded: " + strings.Join(failed, ", ") + " (PHP tab, PECL extensions)"
+	}
+	t.Set(msg, 1)
 	return nil
+}
+
+// carryPECL downloads and enables, for a freshly installed PHP build, the PECL
+// extensions that were switched on in the build it replaces (same minor) or, for
+// a new minor, in the default PHP. A new build ships without them. A failure is
+// logged and listed; the PHP install itself still succeeds.
+func (a *App) carryPECL(t *Task, minor string, want []string) (carried, failed []string) {
+	p, ok := a.config().PHP[minor]
+	if !ok {
+		return nil, nil
+	}
+	have := a.availableExtensions(p)
+	for _, name := range want {
+		if contains(have, name) || contains(p.Builtin, name) {
+			continue
+		}
+		if err := a.installPECL(t, minor, name, true); err != nil {
+			a.log.Printf("PHP %s: bringing over %s: %v", minor, name, err)
+			failed = append(failed, name)
+			continue
+		}
+		carried = append(carried, name)
+	}
+	return carried, failed
 }
 
 // ensureCACert downloads Mozilla's CA bundle so curl/openssl in PHP can verify HTTPS.

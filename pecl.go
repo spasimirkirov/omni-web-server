@@ -94,6 +94,17 @@ func peclKnown(name string) bool {
 	return false
 }
 
+// peclEnabled keeps the registry (PECL) extensions out of a list of enabled ones.
+func peclEnabled(enabled []string) []string {
+	var out []string
+	for _, e := range enabled {
+		if peclKnown(e) && !contains(out, e) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
 // extMissing lists extensions that are switched on in the config but have no
 // DLL in the extension folder (for example after a PHP patch upgrade replaced
 // the folder). They are skipped in php.ini and offered for download again.

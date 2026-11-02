@@ -90,6 +90,8 @@ input[type=text].wide { width: 100%; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .exts { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px 14px; }
 .ext { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.ext-missing { gap: 6px; min-width: 0; }
+.ext-missing .btn.small { padding: 1px 8px; }
 .ext .n { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
 .php-card { margin-bottom: 14px; }
 .php-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
@@ -171,6 +173,7 @@ pre.tlog { margin: 0; background: var(--panel-2); border-radius: 8px; padding: 1
       <button data-tab="php">PHP</button>
       <button data-tab="tools">Tools</button>
       <button data-tab="import" id="nav-import" hidden>Import</button>
+      <button data-tab="activity">Activity <span class="badge" id="nav-activity-count" hidden></span></button>
       <button data-tab="logs">Logs</button>
       <button data-tab="settings">Settings</button>
     </nav>
@@ -180,11 +183,11 @@ pre.tlog { margin: 0; background: var(--panel-2); border-radius: 8px; padding: 1
 </header>
 <main>
   <div id="notices"></div>
-  <div id="tasks"></div>
   <section id="tab-overview"></section>
   <section id="tab-php" hidden></section>
   <section id="tab-tools" hidden></section>
   <section id="tab-import" hidden></section>
+  <section id="tab-activity" hidden><div id="tasks"></div></section>
   <section id="tab-logs" hidden></section>
   <section id="tab-settings" hidden></section>
 </main>
@@ -265,12 +268,16 @@ function renderNotices() {
       <button class="btn small" data-act="update-later">Later</button></div>` : "";
   $("#notices").innerHTML = banner + (S.warnings || []).map(w => `<div class="notice warn">${esc(w)}</div>`).join("");
   const tasks = S.tasks || [];
-  $("#tasks").innerHTML = tasks.length ? `<div class="panel" style="margin-bottom:12px">${tasks.map(t => `
+  const running = tasks.filter(t => t.status === "running").length;
+  const count = $("#nav-activity-count");
+  count.textContent = running;
+  count.hidden = !running;
+  $("#tasks").innerHTML = tasks.length ? `<h2>Activity</h2><div class="panel" style="margin-bottom:12px">${tasks.map(t => `
     <div class="task">
       <div class="row"><strong>${esc(t.title)}</strong>${t.steps ? `<button class="btn small" data-task-open="${t.id}" data-site="${esc((t.title.match(/^Create (.+) \(/) || [])[1] || "")}">Details</button>` : ""}<span class="muted small">${esc(t.status === "running" ? t.message : t.status === "done" ? (t.message || "Done") : "Failed")}</span></div>
       ${t.status === "running" ? `<div class="progress ${t.progress < 0 ? "indet" : ""}"><div style="width:${Math.max(0, t.progress) * 100}%"></div></div>` : ""}
       ${t.error ? `<div class="err">${esc(t.error)}</div>` : ""}
-    </div>`).join("")}</div>` : "";
+    </div>`).join("")}</div>` : `<h2>Activity</h2><div class="empty">Nothing yet. Installs, updates, domain changes and new projects show their progress here.</div>`;
 }
 
 function svcCard(s) {
@@ -416,7 +423,6 @@ function phpVersionCard(p) {
       <span class="badge">${p.in_use ? `${p.running}/${p.workers} workers running` : "not in use"}</span>
       <span class="spacer" style="flex:1"></span>
       <label class="small muted" title="Recommended for this PC: ${S.settings.tuning.workers_recommended} (${S.settings.tuning.cpus} CPUs)">Workers <input type="number" min="1" max="32" value="${p.workers}" style="width:60px" data-php-workers="${esc(p.minor)}"></label>
-      ${p.extensions.some(e => e.name === "xdebug") ? "" : `<button class="btn small" data-install="xdebug" data-version="${esc(p.minor)}">Install Xdebug</button>`}
       <button class="btn small" data-log="php${esc(p.minor.replace(".", ""))}_error">Error log</button>
       ${p.removable ? `<button class="btn small danger" data-php-remove="${esc(p.minor)}">Uninstall</button>` : ""}
     </div>
@@ -425,7 +431,7 @@ function phpVersionCard(p) {
       <div class="muted small mono" style="word-break:break-all">${esc(p.path)}<br>php.ini: ${esc(p.ini_path)}</div>
       <div class="section-title row">Extensions <input type="text" placeholder="Filter…" value="${esc(phpFilter)}" id="ext-filter-${esc(p.minor)}" data-ext-filter="${esc(p.minor)}" style="width:160px;font-weight:400"></div>
       <div class="exts">${toggles.map(e => `
-        ${e.missing ? `<span class="ext"><span class="n">${esc(e.name)}</span> <span class="badge">missing</span> ${(p.pecl || []).some(x => x.name === e.name) ? `<button class="btn small" data-install="phpext" data-version="${esc(p.minor)}:${esc(e.name)}">Download again</button>` : ""} <button class="btn small" data-ext-off="${esc(e.name)}" data-minor="${esc(p.minor)}" title="Switch it off">Off</button></span>` : `<label class="ext"><span class="switch"><input type="checkbox" data-ext="${esc(e.name)}" data-minor="${esc(p.minor)}" ${e.enabled ? "checked" : ""}><span></span></span><span class="n">${esc(e.name)}</span></label>`}`).join("") || `<span class="muted small">No matching extensions.</span>`}
+        ${e.missing ? `<span class="ext ext-missing" title="Switched on, but its DLL is not in this PHP build${(p.pecl || []).some(x => x.name === e.name) ? ". Download it again under PECL extensions below." : "."}"><span class="n">${esc(e.name)}</span><span class="badge">missing</span><button class="btn small" data-ext-off="${esc(e.name)}" data-minor="${esc(p.minor)}" title="Switch it off">Off</button></span>` : `<label class="ext"><span class="switch"><input type="checkbox" data-ext="${esc(e.name)}" data-minor="${esc(p.minor)}" ${e.enabled ? "checked" : ""}><span></span></span><span class="n">${esc(e.name)}</span></label>`}`).join("") || `<span class="muted small">No matching extensions.</span>`}
       </div>
       ${builtin.length ? `<div class="hint" style="margin-top:8px">Built in: ${builtin.map(e => esc(e.name)).join(", ")}</div>` : ""}
       ${S.platform === "windows" ? peclSection(p) : ""}
@@ -1070,7 +1076,21 @@ async function buildNewProject() {
 }
 
 async function startInstall(body) {
-  await act("POST", "/api/install", body, "Started: " + body.component);
+  await act("POST", "/api/install", body, installLabel(body));
+}
+
+// The toast for a started install, in words instead of the component id.
+function installLabel(body) {
+  const [minor, ext, mode] = String(body.version || "").split(":");
+  switch (body.component) {
+    case "phpext": return `${mode === "download" ? "Downloading" : "Downloading and enabling"} ${ext} for PHP ${minor}`;
+    case "phpredis": return minor ? `Adding the redis extension to PHP ${minor}` : "Adding the redis extension";
+    case "php": return `Installing PHP ${body.version || ""}`.trim();
+    case "tool": return `Installing ${body.version}`;
+    case "toolupdate": return `Updating ${body.version}`;
+    case "composer-reinstall": return "Reinstalling Composer";
+    default: return `Installing ${body.component}${body.version ? " " + body.version : ""}`;
+  }
 }
 
 async function phpInstallDialog() {
@@ -1252,7 +1272,7 @@ document.addEventListener("input", e => {
   await loadImports(false);
   let saved = "overview";
   try { saved = localStorage.getItem("omni-tab") || "overview"; } catch (e) {}
-  const tabs = ["overview", "php", "tools", "logs", "settings"].concat(importCache.length ? ["import"] : []);
+  const tabs = ["overview", "php", "tools", "activity", "logs", "settings"].concat(importCache.length ? ["import"] : []);
   showTab(tabs.includes(saved) ? saved : "overview");
   setInterval(() => refresh(false), 2000);
 })();
