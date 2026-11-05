@@ -203,7 +203,7 @@ func (a *App) createTrayWindow() bool {
 	return true
 }
 
-// loadAppIcon takes the small icon embedded in omni.exe (rsrc_windows_amd64.syso).
+// loadAppIcon takes the small icon embedded in ows.exe (rsrc_windows_amd64.syso).
 func loadAppIcon() uintptr {
 	if exe, err := os.Executable(); err == nil {
 		p, _ := syscall.UTF16PtrFromString(exe)

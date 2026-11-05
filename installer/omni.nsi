@@ -1,7 +1,7 @@
 ﻿; Omni Web Server installer (NSIS 3). Build with build.sh or:
 ;   makensis -DVERSION=1.1.0 -DSRCDIR=..\dist\OmniWebServer installer\omni.nsi
 ;
-; Silent install:  OmniWebServer-Setup.exe /S /D=C:\OmniWebServer /WWW=D:\Projects
+; Silent install:  OmniWebServer-Setup.exe /S /WWW=D:\Projects [/NOPATH] /D=C:\OmniWebServer
 ; (/D must be last and unquoted, as with every NSIS installer)
 
 Unicode true
@@ -9,7 +9,7 @@ ManifestDPIAware true
 SetCompressor /SOLID lzma
 
 !ifndef VERSION
-  !define VERSION "1.3.1"
+  !define VERSION "1.4.0"
 !endif
 !ifndef SRCDIR
   !define SRCDIR "..\dist\OmniWebServer"
@@ -20,8 +20,11 @@ SetCompressor /SOLID lzma
 
 !define APPNAME   "Omni Web Server"
 !define APPKEY    "OmniWebServer"
-!define APPEXE    "omni.exe"
-!define APPEXEW   "omniw.exe" ; no console window: shortcuts, autostart
+!define APPEXE    "ows.exe"
+!define APPEXEW   "owsw.exe" ; no console window: shortcuts, autostart
+; names before the omni -> ows rename, removed on upgrade
+!define OLDEXE    "omni.exe"
+!define OLDEXEW   "omniw.exe"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPKEY}"
 
 Name "${APPNAME}"
@@ -136,8 +139,10 @@ LangString NeedWin10 ${LANG_BULGARIAN} "Omni Web Server изисква 64-бит
 LangString VCRedist ${LANG_ENGLISH} "Installing the Microsoft Visual C++ Redistributable..."
 LangString VCRedist ${LANG_BULGARIAN} "Инсталиране на Microsoft Visual C++ Redistributable..."
 
-LangString DescCore ${LANG_ENGLISH} "Dashboard, CLI (omni), automatic vhosts, wildcard DNS and HTTPS."
-LangString DescCore ${LANG_BULGARIAN} "Табло, команден ред (omni), автоматични vhost-ове, wildcard DNS и HTTPS."
+LangString DescCore ${LANG_ENGLISH} "Dashboard, CLI (ows), automatic vhosts, wildcard DNS and HTTPS."
+LangString DescCore ${LANG_BULGARIAN} "Табло, команден ред (ows), автоматични vhost-ове, wildcard DNS и HTTPS."
+LangString DescPath ${LANG_ENGLISH} "Every terminal (cmd, PowerShell, Git Bash) and IDE can run php, composer, mysql and ows with the same PHP and php.ini as the web server. Can be changed later in Settings."
+LangString DescPath ${LANG_BULGARIAN} "Всеки терминал (cmd, PowerShell, Git Bash) и IDE може да пуска php, composer, mysql и ows със същия PHP и php.ini като уеб сървъра. Може да се промени по-късно в Настройки."
 LangString DescVC ${LANG_ENGLISH} "Runtime needed by Apache, PHP and MySQL (skipped when already installed)."
 LangString DescVC ${LANG_BULGARIAN} "Нужен на Apache, PHP и MySQL (пропуска се, ако вече е инсталиран)."
 LangString DescStack ${LANG_ENGLISH} "Downloaded automatically on the first start, so you get a working server right away."
@@ -201,6 +206,7 @@ Function .onInit
   ${EndIf}
   Call DetectOldStack
   Call KeepAutorun
+  Call KeepPath
 FunctionEnd
 
 Function WWWPagePre
@@ -218,9 +224,13 @@ Section "!Omni Web Server" SecCore
     StrCpy $WWWDir "$INSTDIR\www"
   ${EndIf}
 
-  ; Upgrade: stop a running instance so omni.exe can be replaced.
+  ; Upgrade: stop a running instance so its exe can be replaced (older versions: omni.exe).
   ${If} ${FileExists} "$INSTDIR\${APPEXE}"
     nsExec::Exec '"$INSTDIR\${APPEXE}" quit'
+    Pop $0
+    Sleep 2500
+  ${ElseIf} ${FileExists} "$INSTDIR\${OLDEXE}"
+    nsExec::Exec '"$INSTDIR\${OLDEXE}" quit'
     Pop $0
     Sleep 2500
   ${EndIf}
@@ -232,6 +242,9 @@ Section "!Omni Web Server" SecCore
   File "${SRCDIR}\LICENSE"
   File "${SRCDIR}\CREDITS.md"
   File /oname=omni.ico "..\favicons\favicon.ico"
+  ; The command was renamed omni -> ows; shortcuts and autostart are rewritten below.
+  Delete "$INSTDIR\${OLDEXE}"
+  Delete "$INSTDIR\${OLDEXEW}"
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
   ; Programs and Features entry
@@ -289,6 +302,10 @@ Section /o "Import from Laragon / XAMPP" SecImport
   !insertmacro AddPending "migrate:$MigrateKind"
 SectionEnd
 
+Section "Add php, composer, mysql and ows to PATH" SecPath
+  ; read in the Finalize section below (ows init --path on|off)
+SectionEnd
+
 Section "Run as administrator" SecAdmin
   ; read in the shortcut section below
 SectionEnd
@@ -320,8 +337,12 @@ Section "-Finalize"
   ${EndIf}
 
   CreateDirectory "$WWWDir"
-  ; Creates omni.json, the www folder, bin\shims on PATH and HKCU\Software\OmniWebServer.
-  nsExec::ExecToLog '"$INSTDIR\${APPEXE}" --root "$INSTDIR" init --www "$WWWDir" --install "$Pending"'
+  ; Creates omni.json, the www folder, bin\shims (on PATH when chosen) and HKCU\Software\OmniWebServer.
+  StrCpy $1 "off"
+  ${If} ${SectionIsSelected} ${SecPath}
+    StrCpy $1 "on"
+  ${EndIf}
+  nsExec::ExecToLog '"$INSTDIR\${APPEXE}" --root "$INSTDIR" init --www "$WWWDir" --install "$Pending" --path $1'
   Pop $0
   WriteRegStr HKCU "Software\${APPKEY}" "WWWDir" "$WWWDir"
 SectionEnd
@@ -331,6 +352,7 @@ SectionEnd
   !insertmacro MUI_DESCRIPTION_TEXT ${SecVC} "$(DescVC)"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecStack} "$(DescStack)"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecImport} "$(DescImport)"
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecPath} "$(DescPath)"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecAdmin} "$(DescAdmin)"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop} "$(DescDesktop)"
   !insertmacro MUI_DESCRIPTION_TEXT ${SecAutorun} "$(DescAutorun)"
@@ -343,8 +365,8 @@ SectionEnd
 Function DetectOldStack
   SectionSetText ${SecImport} ""
   InitPluginsDir
-  File /oname=$PLUGINSDIR\omni-detect.exe "${SRCDIR}\${APPEXE}"
-  nsExec::ExecToStack '"$PLUGINSDIR\omni-detect.exe" --root "$PLUGINSDIR" migrate detect'
+  File /oname=$PLUGINSDIR\ows-detect.exe "${SRCDIR}\${APPEXE}"
+  nsExec::ExecToStack '"$PLUGINSDIR\ows-detect.exe" --root "$PLUGINSDIR" migrate detect'
   Pop $0
   Pop $1
   ${If} $0 != 0
@@ -375,6 +397,25 @@ Function KeepAutorun
   ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APPKEY}"
   ${If} $0 != ""
     !insertmacro SelectSection ${SecAutorun}
+  ${EndIf}
+FunctionEnd
+
+; PATH is on by default. An upgrade keeps the current choice (the shims folder
+; is on the user PATH or not); /NOPATH turns it off for silent installs.
+Function KeepPath
+  ${If} ${FileExists} "$INSTDIR\omni.json"
+    ReadRegStr $0 HKCU "Environment" "Path"
+    ClearErrors
+    ${WordFind} "$0" "$INSTDIR\bin\shims" "E+1{" $1
+    ${If} ${Errors}
+      !insertmacro UnselectSection ${SecPath}
+    ${EndIf}
+  ${EndIf}
+  ${GetParameters} $0
+  ClearErrors
+  ${GetOptions} $0 "/NOPATH" $1
+  ${IfNot} ${Errors}
+    !insertmacro UnselectSection ${SecPath}
   ${EndIf}
 FunctionEnd
 
@@ -411,6 +452,8 @@ Section "Uninstall"
 
   Delete "$INSTDIR\${APPEXE}"
   Delete "$INSTDIR\${APPEXEW}"
+  Delete "$INSTDIR\${OLDEXE}"
+  Delete "$INSTDIR\${OLDEXEW}"
   Delete "$INSTDIR\README.md"
   Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\CREDITS.md"

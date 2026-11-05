@@ -10,7 +10,7 @@ import (
 )
 
 // Discoverability: launcher shims in bin/shims (php, phpXY, composer, node,
-// npm, npx, mysql, mysqldump, redis-cli) that a single PATH entry exposes to
+// npm, npx, mysql, mysqldump, redis-cli, ows) that a single PATH entry exposes to
 // every terminal and IDE, plus registry values under
 // HKCU\Software\OmniWebServer that describe where everything lives.
 
@@ -71,6 +71,10 @@ func (a *App) shims(cfg *Config) map[string]shim {
 			out["redis-cli"] = shim{target: p}
 		}
 	}
+	// The server's own command line ("ows status"), from the install folder.
+	if p := a.path(exeName("ows")); exists(p) {
+		out["ows"] = shim{target: p}
+	}
 	return out
 }
 
@@ -82,28 +86,43 @@ func quoteArgs(args []string) string {
 	return b.String()
 }
 
+// shQuote quotes s for a POSIX shell (single quotes keep $, \ and spaces literal).
+func shQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// shShim is the #!/bin/sh launcher. On Windows it sits next to the .cmd one
+// (like composer and npm do) because Git Bash, MSYS2 and Cygwin only run
+// extensionless or .exe files by name and never pick up "php.cmd" as "php".
+// Paths use forward slashes there, which both MSYS and native Windows programs accept.
+func shShim(s shim) string {
+	var b strings.Builder
+	b.WriteString("#!/bin/sh\n")
+	if s.env != "" {
+		b.WriteString(s.env + " ")
+	}
+	b.WriteString("exec " + shQuote(slash(s.target)))
+	for _, arg := range s.args {
+		b.WriteString(" " + shQuote(slash(arg)))
+	}
+	b.WriteString(" \"$@\"\n")
+	return b.String()
+}
+
 // writeShims rewrites bin/shims and removes shims for things no longer installed.
 func (a *App) writeShims(cfg *Config) {
 	dir := a.path("bin", "shims")
 	_ = os.MkdirAll(dir, 0o755)
 	want := map[string]bool{}
-	for name, s := range a.shims(cfg) {
-		var file, body string
-		if runtime.GOOS == "windows" {
-			file = name + ".cmd"
-			body = fmt.Sprintf("@echo off\r\n\"%s\"%s %%*\r\n", s.target, quoteArgs(s.args))
-		} else {
-			file = name
-			env := ""
-			if s.env != "" {
-				env = s.env + " "
-			}
-			body = fmt.Sprintf("#!/bin/sh\n%sexec \"%s\"%s \"$@\"\n", env, s.target, quoteArgs(s.args))
-		}
+	write := func(file, body string) {
 		want[file] = true
 		p := filepath.Join(dir, file)
 		_, _ = writeIfChanged(p, []byte(body))
 		_ = os.Chmod(p, 0o755)
+	}
+	for name, s := range a.shims(cfg) {
+		if runtime.GOOS == "windows" {
+			write(name+".cmd", fmt.Sprintf("@echo off\r\n\"%s\"%s %%*\r\n", s.target, quoteArgs(s.args)))
+		}
+		write(name, shShim(s))
 	}
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {

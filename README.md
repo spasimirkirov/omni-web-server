@@ -38,7 +38,7 @@
 [Building from source](#building-from-source)
 
 You control everything from a dashboard at <http://localhost:8800> and from
-the tray icon next to the clock. A single `omni.exe` manages everything, and an
+the tray icon next to the clock. A single `ows.exe` manages everything, and an
 installer sets it up.
 
 ## Features
@@ -84,14 +84,20 @@ installer sets it up.
    it starts everything. A sample site is at <http://welcome.test>, and the
    tray icon next to the clock opens the dashboard at any time.
 
+**Add php, composer, mysql and ows to PATH** is on by default. Every terminal
+(cmd, PowerShell, Git Bash) and IDE then runs them with the same PHP and
+`php.ini` as the web server. An upgrade keeps your current choice, and you can
+change it later under **Settings**.
+
 **Run as administrator** is on by default. It makes the shortcuts start
 elevated, so changes to the hosts file and DNS need no UAC prompts.
 **Start with Windows** adds a sign-in entry that starts Omni Web Server in the
 background.
 
 For a silent install, run
-`OmniWebServer-<version>-Setup.exe /S /WWW=D:\Projects /D=C:\OmniWebServer`.
-There is also a **portable zip**: unzip it anywhere and run `omni.exe`.
+`OmniWebServer-<version>-Setup.exe /S /WWW=D:\Projects /D=C:\OmniWebServer`
+(add `/NOPATH` before `/D` to leave PATH alone).
+There is also a **portable zip**: unzip it anywhere and run `ows.exe`.
 
 When you uninstall, it stops everything and removes the hosts entries, the DNS
 rule, the PATH entry and the registry key. It then asks whether to also delete
@@ -110,7 +116,7 @@ In the same **New project** panel choose **Source: Git repository**. Enter the r
 Git is started without a shell, never asks for a password (a private repository fails at once: set up a credential helper or an SSH key first) and accepts only `https://`, `http://`, `ssh://`, `file://` and `git@host:path` URLs. Git itself must be installed; the panel offers **Install Git** otherwise. From the command line:
 
 ```text
-omni.exe new blog --git https://github.com/user/blog.git --branch main --depth 1 --composer --env --npm --db
+ows.exe new blog --git https://github.com/user/blog.git --branch main --depth 1 --composer --env --npm --db
 ```
 
 ### Laravel by hand
@@ -203,45 +209,48 @@ certificate. This includes one level of subdomains, such as
 ## Command line
 
 You don't need the command line: the dashboard and the tray icon do
-everything. For scripts, `omni.exe` in the install folder has the same
-features. It is deliberately not added to PATH, so it can't clash with another
-program's `omni` command. Run it with its full path, for example
-`C:\OmniWebServer\omni.exe status`. Most commands talk to the running server.
+everything. For scripts, `ows.exe` in the install folder has the same
+features. When PATH is on, the `ows` command works in every terminal
+(`ows status`); otherwise run it with its full path, for example
+`C:\OmniWebServer\ows.exe status`. Most commands talk to the running server.
+Older versions called it `omni.exe`; the installer removes the old name on
+upgrade.
 
 ```text
-omni.exe help                          every command
-omni.exe start | stop | quit           start in background + services | stop services | exit
-omni.exe status                        services, PHP pools and sites
-omni.exe new blog --git <url> [--branch x] [--depth 1] [--composer] [--env] [--npm] [--db]   clone a repository into a project
-omni.exe site enable|disable blog      toggle a vhost
-omni.exe site php blog 8.2             PHP version per project ("default" to reset)
-omni.exe site root blog web            custom document root ("auto" to reset)
-omni.exe site add shop D:\work\shop    vhost for a folder outside www
-omni.exe php install 8.4               download PHP (or 7.4.33 from the archives)
-omni.exe ext 8.4 on intl               toggle extensions
-omni.exe install xdebug 8.4            Xdebug for PHP 8.4
-omni.exe ext 8.4 pecl                  PECL extensions with a build for PHP 8.4
-omni.exe ext 8.4 install redis         download php_redis.dll and enable it (--no-enable: only download)
-omni.exe install phpredis [8.4]        same as ext 8.4 install redis
-omni.exe install composer | mailpit | redis | mariadb | adminer
-omni.exe install tool node             Node.js, Python, Git, ... via winget (list: omni.exe tools)
-omni.exe install toolupdate git       update a winget app (omni.exe tools shows which have updates)
-omni.exe db create blog                utf8mb4 database
-omni.exe dns on | ssl on | ssl trust   wildcard DNS, HTTPS, trust the local CA
-omni.exe share blog [off]              public https URL through Cloudflare
-omni.exe logs apache_error 100         show a log
-omni.exe migrate laragon | xampp       import from Laragon/XAMPP (lists the steps first)
+ows.exe help                          every command
+ows.exe start | stop | quit           start in background + services | stop services | exit
+ows.exe status                        services, PHP pools and sites
+ows.exe new blog --git <url> [--branch x] [--depth 1] [--composer] [--env] [--npm] [--db]   clone a repository into a project
+ows.exe site enable|disable blog      toggle a vhost
+ows.exe site php blog 8.2             PHP version per project ("default" to reset)
+ows.exe site root blog web            custom document root ("auto" to reset)
+ows.exe site add shop D:\work\shop    vhost for a folder outside www
+ows.exe php install 8.4               download PHP (or 7.4.33 from the archives)
+ows.exe ext 8.4 on intl               toggle extensions
+ows.exe install xdebug 8.4            Xdebug for PHP 8.4
+ows.exe ext 8.4 pecl                  PECL extensions with a build for PHP 8.4
+ows.exe ext 8.4 install redis         download php_redis.dll and enable it (--no-enable: only download)
+ows.exe install phpredis [8.4]        same as ext 8.4 install redis
+ows.exe install composer | mailpit | redis | mariadb | adminer
+ows.exe install tool node             Node.js, Python, Git, ... via winget (list: ows.exe tools)
+ows.exe install toolupdate git       update a winget app (ows.exe tools shows which have updates)
+ows.exe db create blog                utf8mb4 database
+ows.exe dns on | ssl on | ssl trust   wildcard DNS, HTTPS, trust the local CA
+ows.exe share blog [off]              public https URL through Cloudflare
+ows.exe logs apache_error 100         show a log
+ows.exe migrate laragon | xampp       import from Laragon/XAMPP (lists the steps first)
 ```
 
 ## Folder layout
 
 ```text
 C:\OmniWebServer\
-  omni.exe                  dashboard, CLI and supervisor
-  omniw.exe                 the same without a console window (shortcuts, autostart)
+  ows.exe                   dashboard, CLI and supervisor
+  owsw.exe                  the same without a console window (shortcuts, autostart)
   omni.json                 settings and per-project choices
   bin\apache\ bin\php\php-8.4.x\ bin\mysql\ bin\redis\ bin\mailpit\ bin\composer\
-  bin\shims\                php, composer, mysql, redis-cli ... (on PATH)
+  bin\shims\                php, composer, mysql, redis-cli, ows ... (on PATH)
+                            each as name.cmd (cmd, PowerShell, IDEs) and name (Git Bash)
   etc\apache\httpd.conf     generated; your own directives go in etc\apache\custom\*.conf
   etc\php\8.4\php.ini       generated per version from php.ini-development + your settings
   etc\mysql\my.ini          generated; overrides go in etc\mysql\custom.ini
@@ -336,8 +345,8 @@ hides the exclusions, and the status reads "unknown".
 | **Port 80 is already in use by another program** | Close that program, or change the port. |
 | **Apache, PHP or MySQL exits immediately** | Install the [Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe), then check the log that the dashboard shows. |
 | **`name.test` doesn't resolve** | Click **Settings → Rewrite hosts file now**, or **Apply DNS rule** when wildcard DNS is on. Accept the UAC prompt, or run Omni Web Server as administrator. Then check that the hosts file has the Omni Web Server block, or that `Get-DnsClientNrptRule` lists the `OmniWebServer` rule. |
-| **`Class "Redis" not found`** | The PHP Redis extension is missing for the PHP version of the project. Run `omni.exe ext 8.4 install redis` (or click **Add Redis extension to PHP 8.4** on the Redis card, or **Download and enable** under PECL extensions in the PHP tab), then check with `php -m`. After a PHP patch update an enabled extension can show as *missing*: click **Download again**. Alternatively set `REDIS_CLIENT=predis` in `.env`. |
-| **Windows SmartScreen warns about `omni.exe`** | The build isn't code-signed. Choose **More info → Run anyway**. |
+| **`Class "Redis" not found`** | The PHP Redis extension is missing for the PHP version of the project. Run `ows.exe ext 8.4 install redis` (or click **Add Redis extension to PHP 8.4** on the Redis card, or **Download and enable** under PECL extensions in the PHP tab), then check with `php -m`. After a PHP patch update an enabled extension can show as *missing*: click **Download again**. Alternatively set `REDIS_CLIENT=predis` in `.env`. |
+| **Windows SmartScreen warns about `ows.exe`** | The build isn't code-signed. Choose **More info → Run anyway**. |
 
 ## Importing existing projects
 
@@ -367,7 +376,7 @@ for the installer.
 ./build.sh
 ```
 
-This runs the tests and builds `dist/OmniWebServer/omni.exe` and `omniw.exe`,
+This runs the tests and builds `dist/OmniWebServer/ows.exe` and `owsw.exe`,
 the Setup.exe and a portable zip.
 
 On Windows:
@@ -384,13 +393,13 @@ To publish a release, set `appVersion` in `app.go`, then push a matching tag:
 the release. **Actions → Build → Run workflow** builds them without a release.
 
 `rsrc_windows_amd64.syso` embeds the icon and version information in
-`omni.exe`. To regenerate it, run:
+`ows.exe`. To regenerate it, run:
 
 ```sh
 go run github.com/tc-hib/go-winres@v0.3.3 simply --arch amd64 --icon logo.png --manifest cli \
   --product-name "Omni Web Server" --product-version 1.2.0 --file-version 1.2.0.0 \
   --file-description "Omni Web Server - Apache, PHP, MySQL for Windows" \
-  --copyright "Omni Web Server" --original-filename omni.exe
+  --copyright "Omni Web Server" --original-filename ows.exe
 ```
 
 The favicons in `favicons/` and `web/` are generated from `logo.png` as well.

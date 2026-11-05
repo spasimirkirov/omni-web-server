@@ -20,7 +20,7 @@ import (
 
 const usage = `Omni Web Server %s - Apache + PHP + MySQL with automatic virtual hosts
 
-Usage: omni.exe [command]
+Usage: ows.exe [command]
 
   serve [--no-browser]           run the dashboard and services in the foreground (default)
   start                          start Omni Web Server in the background and all services
@@ -64,9 +64,10 @@ Usage: omni.exe [command]
   node [default <ver>]           bundled Node.js from older versions: list / choose the default
   share <site> [off]             public https URL for a site (Cloudflare quick tunnel)
 
-  init [--www <folder>] [--install apache,php,mysql,...]
+  init [--www <folder>] [--install apache,php,mysql,...] [--path on|off]
                                  prepare settings without starting (used by the installer);
-                                 --install queues downloads for the first start
+                                 --install queues downloads for the first start,
+                                 --path puts php, composer, mysql and ows on the user PATH
   cleanup                        remove hosts entries, DNS rule, PATH entry and registry key
   db                             list databases
   db create|drop <name>          create or drop a database
@@ -165,18 +166,26 @@ func cmdServe(root string, browser bool) error {
 // cmdInit prepares the folder (settings, www) without starting services. The
 // installer runs it with the www folder the user picked.
 func cmdInit(root string, args []string) error {
-	www, install := "", ""
+	www, install, path := "", "", ""
 	for i := 0; i+1 < len(args); i++ {
 		switch args[i] {
 		case "--www":
 			www = args[i+1]
 		case "--install":
 			install = args[i+1]
+		case "--path":
+			path = args[i+1]
 		}
+	}
+	if path != "" && path != "on" && path != "off" {
+		return errors.New("usage: ows init --path on|off")
 	}
 	app, err := NewApp(root, www)
 	if err != nil {
 		return err
+	}
+	if path != "" {
+		app.cfg.AddToPath = path == "on"
 	}
 	for _, item := range strings.Split(install, ",") {
 		if item = strings.TrimSpace(item); item != "" && !contains(app.cfg.PendingInstalls, item) && !app.alreadyInstalled(app.cfg, item) {
@@ -237,7 +246,7 @@ func newClient(root string) (*client, error) {
 	return &client{root: root, base: fmt.Sprintf("http://127.0.0.1:%d", cfg.DashboardPort)}, nil
 }
 
-var errNotRunning = errors.New("Omni Web Server is not running: start it with `omni.exe start` or the shortcut")
+var errNotRunning = errors.New("Omni Web Server is not running: start it with `ows.exe start` or the shortcut")
 
 func (c *client) call(method, path string, body, out any) error {
 	var rd io.Reader
@@ -277,7 +286,7 @@ func (c *client) state() (*StateView, error) {
 
 func need(args []string, n int, what string) error {
 	if len(args) < n {
-		return fmt.Errorf("usage: omni %s", what)
+		return fmt.Errorf("usage: ows %s", what)
 	}
 	return nil
 }
@@ -362,11 +371,11 @@ func (c *client) run(cmd string, args []string) error {
 		}
 		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(tw, "ID\tTOOL\tSTATUS")
-		composer := "not installed (omni install composer)"
+		composer := "not installed (ows install composer)"
 		if st.Tools.Composer != "" {
 			composer = st.Tools.Composer
 			if l := st.Tools.ComposerLatest; l != "" && compareVersions(l, composer) > 0 {
-				composer += "  update available: " + l + " (omni install composer)"
+				composer += "  update available: " + l + " (ows install composer)"
 			}
 		}
 		fmt.Fprintf(tw, "composer\tComposer\t%s\n", composer)
@@ -374,14 +383,14 @@ func (c *client) run(cmd string, args []string) error {
 			fmt.Fprintf(tw, "node\tNode.js (bundled)\t%s\n", st.Tools.NodeDefault)
 		}
 		for _, t := range tools {
-			status := "not installed (omni install tool " + t.ID + ")"
+			status := "not installed (ows install tool " + t.ID + ")"
 			if t.Installed {
 				status = "installed: " + t.Path
 				if t.Version != "" {
 					status += " (" + t.Version + ")"
 				}
 				if t.Available != "" {
-					status += "  update available: " + t.Available + " (omni install toolupdate " + t.ID + ")"
+					status += "  update available: " + t.Available + " (ows install toolupdate " + t.ID + ")"
 				}
 			}
 			fmt.Fprintf(tw, "%s\t%s\t%s\n", t.ID, t.Name, status)
@@ -433,7 +442,7 @@ func (c *client) run(cmd string, args []string) error {
 				}
 				fmt.Println("The Omni Web Server CA is now trusted.")
 			default:
-				return errors.New("usage: omni ssl [on|off|trust]")
+				return errors.New("usage: ows ssl [on|off|trust]")
 			}
 		}
 		st, err := c.state()
@@ -450,7 +459,7 @@ func (c *client) run(cmd string, args []string) error {
 			fmt.Printf("HTTPS: on (port %d) - every enabled site is at https://<name>.%s\n", st.Settings.HTTPSPort, st.Settings.TLD)
 		}
 		if s.CA {
-			trust := "NOT trusted yet: run `omni.exe ssl trust`"
+			trust := "NOT trusted yet: run `ows.exe ssl trust`"
 			if s.Trusted {
 				trust = "trusted"
 			}
@@ -461,7 +470,7 @@ func (c *client) run(cmd string, args []string) error {
 		if len(args) > 0 {
 			on := args[0] == "on"
 			if !on && args[0] != "off" {
-				return errors.New("usage: omni dns [on|off]")
+				return errors.New("usage: ows dns [on|off]")
 			}
 			if err := c.call("POST", "/api/settings", map[string]bool{"wildcard_dns": on}, nil); err != nil {
 				return err
@@ -482,7 +491,7 @@ func (c *client) run(cmd string, args []string) error {
 			if d.Active {
 				fmt.Printf("Windows sends *.%s lookups here (NRPT rule); the hosts file is not needed.\n", st.Settings.TLD)
 			} else if d.Resolver == "nrpt" {
-				fmt.Println("The Windows resolver rule is not in place yet: run `omni.exe hosts` and accept the UAC prompt.")
+				fmt.Println("The Windows resolver rule is not in place yet: run `ows.exe hosts` and accept the UAC prompt.")
 			} else {
 				fmt.Printf("Point your resolver at it for *.%s (dnsmasq: server=/%s/127.0.0.1#%d).\n", st.Settings.TLD, st.Settings.TLD, st.Settings.DNSPort)
 			}
@@ -508,7 +517,7 @@ func (c *client) run(cmd string, args []string) error {
 		fmt.Print(out.Text)
 		return nil
 	}
-	return fmt.Errorf("unknown command %q (see omni help)", cmd)
+	return fmt.Errorf("unknown command %q (see ows help)", cmd)
 }
 
 func (c *client) printStatus() error {
@@ -647,7 +656,7 @@ func (c *client) php(args []string) error {
 			if r.Installed != "" {
 				inst = "  (installed " + r.Installed + ")"
 				if r.Update {
-					inst = "  (installed " + r.Installed + ", update available: omni php install " + r.Minor + ")"
+					inst = "  (installed " + r.Installed + ", update available: ows php install " + r.Minor + ")"
 				}
 			}
 			fmt.Printf("%-6s %s%s\n", r.Minor, r.Version, inst)
@@ -873,7 +882,7 @@ func (c *client) migrate(args []string) error {
 	if kind != "" {
 		return fmt.Errorf("no %s installation found", kind)
 	}
-	fmt.Println("Run \"omni migrate laragon\" or \"omni migrate xampp\" to import.")
+	fmt.Println("Run \"ows migrate laragon\" or \"ows migrate xampp\" to import.")
 	return nil
 }
 

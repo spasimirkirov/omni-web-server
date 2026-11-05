@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds dist/OmniWebServer/omni.exe and the Windows installer.
+# Builds dist/OmniWebServer/ows.exe and the Windows installer.
 # Needs Go 1.22+ and NSIS 3 (makensis; on Debian/Ubuntu: apt install nsis).
 # On Windows run it from Git Bash (bash build.sh) or double-click build.cmd.
 set -eu
@@ -17,12 +17,12 @@ done
 rm -rf dist
 mkdir -p dist/OmniWebServer
 go test ./...
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/OmniWebServer/omni.exe .
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/OmniWebServer/ows.exe .
 # Same program without a console window, for shortcuts and autostart.
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/OmniWebServer/omniw.exe .
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/OmniWebServer/owsw.exe .
 cp README.md LICENSE CREDITS.md dist/OmniWebServer/
 (cd installer && "$MAKENSIS" -V2 -DVERSION="$VERSION" -DSRCDIR=../dist/OmniWebServer -DOUTFILE="../dist/OmniWebServer-$VERSION-Setup.exe" omni.nsi)
 # Portable zip (Go only, no Python needed).
 (cd dist && rm -f "OmniWebServer-$VERSION-portable.zip" && go run ../scripts/zipdist.go "OmniWebServer-$VERSION-portable.zip" \
-	OmniWebServer/omni.exe OmniWebServer/omniw.exe OmniWebServer/README.md OmniWebServer/LICENSE OmniWebServer/CREDITS.md)
+	OmniWebServer/ows.exe OmniWebServer/owsw.exe OmniWebServer/README.md OmniWebServer/LICENSE OmniWebServer/CREDITS.md)
 ls -la dist

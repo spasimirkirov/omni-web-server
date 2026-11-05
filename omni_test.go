@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -391,14 +392,28 @@ func TestShimsAndPendingOrder(t *testing.T) {
 	cfg.DefaultPHP = "8.3"
 	os.MkdirAll(filepath.Join(root, "bin", "shims"), 0o755)
 	os.WriteFile(filepath.Join(root, "bin", "shims", "stale"), nil, 0o755)
+	os.WriteFile(filepath.Join(root, exeName("ows")), nil, 0o755)
 	a.writeShims(cfg)
 	entries, _ := os.ReadDir(filepath.Join(root, "bin", "shims"))
 	var names []string
 	for _, e := range entries {
-		names = append(names, strings.TrimSuffix(e.Name(), ".cmd"))
+		names = append(names, e.Name())
 	}
-	if strings.Join(names, ",") != "composer,php,php83" {
+	want := "composer,ows,php,php83"
+	if runtime.GOOS == "windows" {
+		// .cmd for cmd/PowerShell/IDEs, extensionless sh for Git Bash/MSYS
+		want = "composer,composer.cmd,ows,ows.cmd,php,php.cmd,php83,php83.cmd"
+	}
+	if strings.Join(names, ",") != want {
 		t.Fatalf("shims: %v", names)
+	}
+	sh, _ := os.ReadFile(filepath.Join(root, "bin", "shims", "php"))
+	if !strings.HasPrefix(string(sh), "#!/bin/sh\nPHP_INI_SCAN_DIR= exec '") || !strings.Contains(string(sh), "'-c' '"+slash(a.phpIniPath("8.3"))+"'") ||
+		strings.Contains(string(sh), `\`) || !strings.HasSuffix(string(sh), " \"$@\"\n") {
+		t.Fatalf("sh shim:\n%s", sh)
+	}
+	if q := shQuote("it's $x"); q != `'it'\''s $x'` {
+		t.Fatalf("shQuote: %s", q)
 	}
 	vals := a.registryValues(cfg)
 	if vals[`PHP\8.3`]["Path"] == "" || vals[""]["ComposerPhar"] == "" || vals[""]["WWWDir"] != filepath.Join(root, "www") {

@@ -365,7 +365,7 @@ func (a *App) cloneProject(t *Task, p newProject, stage, dir string, createdDB *
 	return nil
 }
 
-// ---------- CLI: omni new <name> --git <url> ... ----------
+// ---------- CLI: ows new <name> --git <url> ... ----------
 
 func (c *client) newProject(args []string) error {
 	usage := "new <name> --git <url> [--branch x] [--depth 1] [--php 8.3] [--composer] [--env] [--npm] [--db [--db-name n]]"
@@ -407,14 +407,14 @@ func (c *client) newProject(args []string) error {
 		case "--db":
 			wantDB = true
 		default:
-			err = fmt.Errorf("unknown option %q (usage: omni %s)", args[i], usage)
+			err = fmt.Errorf("unknown option %q (usage: ows %s)", args[i], usage)
 		}
 		if err != nil {
 			return err
 		}
 	}
 	if p.Repo == "" {
-		return fmt.Errorf("usage: omni %s", usage)
+		return fmt.Errorf("usage: ows %s", usage)
 	}
 	if dbName != "" && !wantDB {
 		return errors.New("--db-name needs --db")

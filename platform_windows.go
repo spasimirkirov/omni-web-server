@@ -69,7 +69,7 @@ var (
 	procMessageBox         = syscall.NewLazyDLL("user32.dll").NewProc("MessageBoxW")
 )
 
-// hasConsole is false for omniw.exe (built with -H windowsgui), which the
+// hasConsole is false for owsw.exe (built with -H windowsgui), which the
 // shortcuts and the autostart entry use so no console window appears.
 func hasConsole() bool {
 	h, _, _ := procGetConsoleWindow.Call()

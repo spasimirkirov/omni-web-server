@@ -1,4 +1,4 @@
-# Pushing a tag such as v1.2.0 builds omni.exe, the Setup.exe and the
+# Pushing a tag such as v1.2.0 builds ows.exe, the Setup.exe and the
 # portable zip and publishes them as a GitHub release. "Run workflow" on the
 # Actions tab builds them without a release (download from "Artifacts").
 name: Build
