@@ -47,6 +47,7 @@ installer sets it up.
 |---|---|
 | **Automatic sites** | Every folder in `www` becomes `http://<folder>.test`. Each project has an on/off switch. |
 | **New project from a template** | **New project…** creates a ready-to-use site in `www`: Laravel (also with the React, Vue or Livewire starter kit), WordPress, Symfony, plain PHP or static HTML. Pick one of the five newest versions, the PHP version and a database name. Omni Web Server creates the database, fills in `.env` or `wp-config.php`, runs the migrations or the WordPress installer, and builds the front end. |
+| **APP_URL check** | A project whose `.env` points to another local address (`APP_URL=http://localhost`, an old `.local` name, the wrong port or `http` instead of `https`) gets a red warning sign next to its URL. **Fix APP_URL** above the project list sets the right address in every such project. Also covers `DEFAULT_URI` (Symfony, in `.env.local`), `PRIMARY_SITE_URL` (Craft), `WP_HOME`/`WP_SITEURL` (Bedrock) and `app.baseURL` (CodeIgniter). Addresses of real sites on the internet are left alone. |
 | **Framework detection** | The right document root is picked automatically for Laravel, Symfony, CodeIgniter 4 (`public/`), Yii and Craft (`web/`), and WordPress. You can override it. |
 | **PHP per project** | Install any number of PHP versions and choose one per project. Toggle extensions and edit `php.ini` per version. **Xdebug** is one click away, and a small list of PECL extensions (redis, apcu, igbinary, xdebug, mongodb) can be downloaded for a PHP version with "Download and enable". When a newer patch of an installed PHP exists, the PHP tab marks it with an **Update** button; nothing is ever installed automatically. Installing a PHP build brings over the PECL extensions that were switched on in the build it replaces (or, for a new version, in the default PHP). Progress of installs and updates is on the **Activity** tab. |
 | **Databases** | MySQL 8.4 or MariaDB 11.4, ready to use with any client (HeidiSQL, DBeaver, PhpStorm). Adminer is optional. |
@@ -175,8 +176,8 @@ Resolve-DnsName anything.blog.test                                 # 127.0.0.1 /
   **Settings → Domain suffix**: one click updates the vhosts, the hosts file,
   the HTTPS certificates, the wildcard DNS rule and restarts Apache, with a
   progress list that tells you what to do if a step needs administrator
-  rights. Omni Web Server does not edit your projects, so update bookmarks and
-  `APP_URL` in each project's `.env` by hand.
+  rights. Bookmarks are not changed. Projects whose `APP_URL` still has the
+  old suffix get a warning sign on the Overview tab: click **Fix APP_URL**.
 - **Browsers with their own secure DNS.** A browser that uses DNS-over-HTTPS
   may bypass the system resolver. Chrome and Edge fall back to the system
   resolver when NRPT rules exist. In Firefox, add the suffix to
@@ -193,7 +194,8 @@ confirm the Windows dialog. Every enabled site now also answers on `https://` wi
 certificate. This includes one level of subdomains, such as
 `https://api.blog.test`. Plain `http://` keeps working.
 
-- **Laravel:** set `APP_URL=https://blog.test`. PHP receives `HTTPS=on`, so
+- **Laravel:** set `APP_URL=https://blog.test` (or click **Fix APP_URL** on
+  the Overview tab). PHP receives `HTTPS=on`, so
   `url()` and `asset()` generate `https://` links.
 - **Phones and other devices:** click **Download CA** and install the
   certificate on the device.

@@ -195,7 +195,7 @@ func (a *App) changeTLD(t *Task, tld string) error {
 	if len(problems) > 0 {
 		return errors.New("The suffix is now ." + tld + ", but: " + strings.Join(problems, " | "))
 	}
-	t.Set("Domain suffix is now ."+tld+". Update bookmarks and APP_URL in your projects.", 1)
+	t.Set("Domain suffix is now ."+tld+". Update bookmarks; Fix APP_URL on the Overview tab updates the projects' .env files.", 1)
 	return nil
 }
 

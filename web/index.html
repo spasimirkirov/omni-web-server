@@ -65,6 +65,9 @@ button.btn, .btn { font: inherit; font-size: 13px; padding: 6px 12px; border-rad
 .notice.warn { background: var(--warn-bg); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
 .notice.info { background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .notice.info .spacer { flex: 1; }
+.notice.urlfix { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.notice.urlfix .spacer { flex: 1; }
+.url-warn { color: var(--err); cursor: help; margin-left: 4px; display: inline-flex; vertical-align: middle; }
 .notice.error { background: var(--err-bg); color: var(--err); }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
@@ -338,6 +341,7 @@ function renderOverview(force) {
   const sites = S.sites || [];
   el.innerHTML = `
     <div class="grid">${S.services.map(svcCard).join("")}${phpCard()}</div>
+    ${urlFixNotice(sites)}
     <h2>Projects <span class="muted small" style="font-weight:400">${esc(S.settings.www_dir)}</span><span class="spacer"></span>
       <button class="btn small" data-act="rescan">Rescan</button>
       ${npOpen ? "" : `<button class="btn small primary" data-act="new-project">New project</button>`}
@@ -353,6 +357,27 @@ function renderOverview(force) {
   if (npOpen && npPanel) $("#np-slot").appendChild(npPanel);
 }
 
+// Projects whose .env (APP_URL and friends) points at another local address.
+function urlFixNotice(sites) {
+  const bad = sites.filter(s => s.url_mismatch && s.url_mismatch.length);
+  if (!bad.length) return "";
+  const keys = [...new Set(bad.flatMap(s => s.url_mismatch.map(u => u.key)))];
+  const what = keys.length === 1 ? keys[0] : "the site URL";
+  return `<div class="notice warn urlfix">${warnIcon()}<span><b>${bad.length === 1 ? "1 project has" : bad.length + " projects have"}</b> ${esc(what)} in .env pointing to another local address: ${bad.map(s => esc(s.name)).join(", ")}.</span>
+    <span class="spacer"></span><button class="btn small primary" data-act="fix-app-url">Fix ${esc(keys.length === 1 ? keys[0] : "APP_URL")}</button></div>`;
+}
+
+function urlWarnTitle(s) {
+  const keys = s.url_mismatch.map(u => u.key).filter((k, i, a) => a.indexOf(k) === i).join(" / ");
+  return `This site does not have a correct ${keys}:\n` +
+    s.url_mismatch.map(u => `${u.file}: ${u.key}=${u.value}\n  should be ${u.want}`).join("\n") +
+    `\n\nClick "Fix" above Projects to correct it.`;
+}
+
+function warnIcon() {
+  return `<svg width="14" height="14" viewBox="0 0 16 16" style="flex:none;vertical-align:-2px" aria-hidden="true"><path fill="currentColor" d="M8.9 1.5a1 1 0 0 0-1.8 0L.6 13.5A1 1 0 0 0 1.5 15h13a1 1 0 0 0 .9-1.5L8.9 1.5zM7.25 6h1.5v4.5h-1.5V6zm0 5.75h1.5v1.5h-1.5v-1.5z"/></svg>`;
+}
+
 function siteRow(s) {
   const rel = s.docroot.startsWith(s.path) ? (s.docroot.slice(s.path.length).replace(/^[\\/]/, "") || ".") : s.docroot;
   return `<tr>
@@ -361,7 +386,7 @@ function siteRow(s) {
       ${s.warning ? `<div class="err">${esc(s.warning)}</div>` : ""}
       ${s.fast_rewrite_ok ? `<label class="small muted" title="Plus: Apache stops looking for .htaccess files on every request. Minus: rules in this project's .htaccess are ignored (the framework's front controller still works)."><input type="checkbox" data-site-fast="${esc(s.name)}" ${s.fast_rewrite ? "checked" : ""}> Skip .htaccess (faster)</label>` : ""}
       ${S.shares && S.shares[s.name] ? `<div class="small">Public: <a href="${esc(S.shares[s.name])}" target="_blank" rel="noopener">${esc(S.shares[s.name])}</a></div>` : (S.shares && s.name in S.shares ? `<div class="small muted">Starting tunnel…</div>` : "")}</td>
-    <td>${s.enabled && !s.missing ? `<a href="${esc(hostURL(s.host))}" target="_blank" rel="noopener">${S.settings.ssl && S.ssl.ca && !S.ssl.error ? lockIcon() : ""}${esc(s.host)}</a>` : `<span class="muted">${esc(s.host)}</span>`}</td>
+    <td>${s.enabled && !s.missing ? `<a href="${esc(hostURL(s.host))}" target="_blank" rel="noopener">${S.settings.ssl && S.ssl.ca && !S.ssl.error ? lockIcon() : ""}${esc(s.host)}</a>` : `<span class="muted">${esc(s.host)}</span>`}${s.url_mismatch && s.url_mismatch.length ? ` <span class="url-warn" tabindex="0" role="img" aria-label="${esc(urlWarnTitle(s))}" title="${esc(urlWarnTitle(s))}">${warnIcon()}</span>` : ""}</td>
     <td><select data-site-php="${esc(s.name)}" aria-label="PHP version for ${esc(s.name)}">${phpOptions(s.php_setting)}</select></td>
     <td class="path mono" title="${esc(s.docroot)}">${esc(rel)}${s.docroot_override ? ` <span class="badge">custom</span>` : ""}</td>
     <td style="white-space:nowrap;text-align:right">
@@ -687,7 +712,7 @@ function renderSettings() {
       ${sw("manage_hosts", "Manage hosts file", "Adds <code>127.0.0.1 project." + esc(st.tld) + "</code> lines to <code class=\"mono\">" + esc(S.hosts_file) + "</code>.")}
       ${sw("wildcard_dns", "Wildcard DNS", "Every <code>*." + esc(st.tld) + "</code> name (also <code>api.blog." + esc(st.tld) + "</code>) resolves to this PC through Omni Web Server's built-in DNS server" + (S.platform === "windows" ? ", so the hosts file no longer needs editing." : "."))}
       ${st.wildcard_dns ? `<label>DNS status</label><div>${dnsStatusHTML()}</div>` : ""}
-      <label for="s-tld">Domain suffix</label><div><input type="text" id="s-tld" value="${esc(st.tld)}" style="width:120px"><div class="hint">Projects are served at name.${esc(st.tld)}. <code>.test</code> is reserved for testing and resolves fast. <code>.local</code> is used by mDNS on Windows and can be slow for names that are not in the hosts file. Avoid real suffixes such as .dev or .app (browsers force HTTPS on them). Saving a new suffix updates vhosts, the hosts file, certificates, wildcard DNS and Apache in one go. Your bookmarks and the APP_URL in your projects' .env files are not changed: update them by hand.</div></div>
+      <label for="s-tld">Domain suffix</label><div><input type="text" id="s-tld" value="${esc(st.tld)}" style="width:120px"><div class="hint">Projects are served at name.${esc(st.tld)}. <code>.test</code> is reserved for testing and resolves fast. <code>.local</code> is used by mDNS on Windows and can be slow for names that are not in the hosts file. Avoid real suffixes such as .dev or .app (browsers force HTTPS on them). Saving a new suffix updates vhosts, the hosts file, certificates, wildcard DNS and Apache in one go. Bookmarks are not changed. Projects whose APP_URL still uses the old suffix get a warning on the Overview tab with a Fix APP_URL button.</div></div>
       <label for="s-www">Projects folder</label><div><input type="text" class="wide mono" id="s-www" value="${esc(st.www_dir)}"></div>
       <label></label><div class="row"><button class="btn primary" data-act="save-settings">Save</button><button class="btn" data-act="hosts-sync">Rewrite hosts file now</button></div>
     </div></div>
@@ -1172,6 +1197,14 @@ document.addEventListener("click", async e => {
       case "start-all": return act("POST", "/api/services/all/restart", undefined, "Services started");
       case "stop-all": return act("POST", "/api/services/all/stop", undefined, "Services stopped");
       case "rescan": return act("POST", "/api/rescan");
+      case "fix-app-url": {
+        const bad = (S.sites || []).filter(x => x.url_mismatch && x.url_mismatch.length);
+        const list = bad.flatMap(x => x.url_mismatch.map(u => `${x.name}: ${u.key} ${u.value} → ${u.want}`)).join("\n");
+        if (!confirm(`Set the local URL in these projects' .env files?\n\n${list}`)) return;
+        const r = await act("POST", "/api/app-url/fix", {});
+        const n = r && r.fixed ? r.fixed.length : 0;
+        return toast(n ? `Updated ${n} setting${n === 1 ? "" : "s"} in .env` : "Nothing to change");
+      }
       case "hosts-sync": return act("POST", "/api/hosts/sync", undefined, "Hosts file updated");
       case "ssl-trust": await act("POST", "/api/ssl/trust", undefined, "Certificate trusted. Reload your https:// tabs."); return renderSettings();
       case "new-project": return toggleNewProject();
@@ -1221,7 +1254,7 @@ document.addEventListener("click", async e => {
         const newTld = $("#s-tld").value.trim().replace(/^\.+/, "").toLowerCase();
         await act("POST", "/api/settings", { www_dir: $("#s-www").value }, "Settings saved");
         if (newTld && newTld !== S.settings.tld) {
-          if (!confirm(`Change the domain suffix from .${S.settings.tld} to .${newTld}?\n\nOmni Web Server updates vhosts, the hosts file, certificates, wildcard DNS and restarts Apache. Windows may ask for administrator rights.\n\nYour bookmarks and the APP_URL in your projects' .env files are NOT changed: update them by hand.`)) return renderSettings();
+          if (!confirm(`Change the domain suffix from .${S.settings.tld} to .${newTld}?\n\nOmni Web Server updates vhosts, the hosts file, certificates, wildcard DNS and restarts Apache. Windows may ask for administrator rights.\n\nBookmarks are not changed. Afterwards, Fix APP_URL on the Overview tab updates the projects' .env files.`)) return renderSettings();
           const t = await act("POST", "/api/tld", { tld: newTld });
           taskDialog(t.id, "", () => refresh(true).then(renderSettings));
         }

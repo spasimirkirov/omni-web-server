@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const appVersion = "1.4.0"
+const appVersion = "1.5.0"
 
 type App struct {
 	root string

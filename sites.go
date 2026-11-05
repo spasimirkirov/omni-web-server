@@ -26,6 +26,9 @@ type Site struct {
 	// FastRewrite is the saved choice; FastRewriteOK says the framework supports it.
 	FastRewrite   bool `json:"fast_rewrite"`
 	FastRewriteOK bool `json:"fast_rewrite_ok"`
+	// URLMismatch lists the .env URL settings (APP_URL, ...) that point at
+	// another local address than the site's own.
+	URLMismatch []envURL `json:"url_mismatch,omitempty"`
 }
 
 var invalidHostChars = regexp.MustCompile(`[^a-z0-9-]+`)
@@ -167,6 +170,7 @@ func (a *App) scanSitesLocked() ([]Site, bool) {
 				s.Warning = "PHP " + sc.PHP + " is not installed, using default"
 			}
 		}
+		s.URLMismatch = envURLMismatches(checkEnvURLs(cfg, s))
 		if other, dup := seenHosts[s.Host]; dup {
 			s.Warning = "host name collides with " + other
 			s.Enabled = false

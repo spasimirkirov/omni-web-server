@@ -9,7 +9,7 @@ ManifestDPIAware true
 SetCompressor /SOLID lzma
 
 !ifndef VERSION
-  !define VERSION "1.4.0"
+  !define VERSION "1.5.0"
 !endif
 !ifndef SRCDIR
   !define SRCDIR "..\dist\OmniWebServer"

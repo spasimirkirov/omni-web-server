@@ -435,6 +435,14 @@ func (a *App) routes() http.Handler {
 			return nil
 		})
 	}))
+	mux.HandleFunc("POST /api/app-url/fix", handle(func(r *http.Request) (any, error) {
+		var body struct {
+			Names []string `json:"names"`
+		}
+		_ = decode(r, &body)
+		done, err := a.fixEnvURLs(body.Names)
+		return map[string]any{"fixed": done}, err
+	}))
 	mux.HandleFunc("POST /api/sites/{name}/open", handle(func(r *http.Request) (any, error) {
 		var body struct{ What string }
 		_ = decode(r, &body)
